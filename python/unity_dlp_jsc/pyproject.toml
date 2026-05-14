@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "unity-dlp-jsc"
+version = "0.1.0"
+description = "JSCProvider shim: routes yt-dlp JavaScript challenges to Rust/V8"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.entry-points."yt_dlp.plugins"]
+unity_dlp_jsc = "unity_dlp_jsc"

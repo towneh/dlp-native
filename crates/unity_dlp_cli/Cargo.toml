@@ -1,0 +1,13 @@
+[package]
+name = "unity_dlp_cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "unity_dlp_cli"
+path = "src/main.rs"
+
+[dependencies]
+unity_dlp_core = { path = "../unity_dlp_core" }
+serde_json.workspace = true

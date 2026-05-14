@@ -1,0 +1,17 @@
+{
+  "name": "com.yewnyx.ytdlp",
+  "version": "0.1.0",
+  "displayName": "YtDlp Native",
+  "description": "Native yt-dlp media extraction plugin for Unity 6.3+. Statically embeds CPython and V8; no subprocess at runtime.",
+  "unity": "6000.3",
+  "unityRelease": "0f1",
+  "documentationUrl": "",
+  "changelogUrl": "",
+  "licensesUrl": "",
+  "dependencies": {},
+  "keywords": ["yt-dlp", "video", "native", "python"],
+  "author": {
+    "name": "yewnyx",
+    "email": "yewnyx@yewnyx.xyz"
+  }
+}

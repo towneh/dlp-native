@@ -1,0 +1,8 @@
+[package]
+name = "unity_dlp_capi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# This crate exists only to hold cbindgen.toml and is not compiled itself.
+# The build.rs in unity_dlp_core reads the cbindgen.toml from this crate's
+# directory to generate unity_dlp.h.

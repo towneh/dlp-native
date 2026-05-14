@@ -1,0 +1,101 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build -p unity_dlp_core --release
+
+      - name: CLI smoke test
+        run: cargo run -p unity_dlp_cli --release -- version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity_dlp-windows-x64
+          path: target/release/unity_dlp.dll
+
+  # ── macOS universal ──────────────────────────────────────────────────────────
+  macos:
+    name: macOS universal
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build universal
+        run: bash scripts/build-macos-universal.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity_dlp-macos-universal
+          path: unity_package/Plugins/x86_64/unity_dlp.dylib
+
+  # ── Linux x64 ───────────────────────────────────────────────────────────────
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build -p unity_dlp_core --release
+
+      - name: CLI smoke test
+        run: cargo run -p unity_dlp_cli --release -- version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity_dlp-linux-x64
+          path: target/release/libunity_dlp.so
+
+  # ── Phase 2+ targets (stubs until those phases land) ────────────────────────
+  # iOS and Android builds are added in Phase 4 and 5 respectively.
