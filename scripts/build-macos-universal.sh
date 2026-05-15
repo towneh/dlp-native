@@ -4,11 +4,11 @@
 #
 # PyO3 cross-compilation notes:
 #   arm64 build : native; PYO3_PYTHON is used if set, otherwise uv python find 3.12.
-#   x86_64 build: cross-compiled from arm64 host. Requires either a universal2
-#                 Python (actions/setup-python provides one on macos-latest) or
-#                 PYO3_CROSS_LIB_DIR pointing at an x86_64 Python lib directory.
-#                 PYO3_CROSS_PYTHON_VERSION=3.12 is set here so PyO3 does not
-#                 attempt to detect the version by running the arm64 Python binary.
+#   x86_64 build: cross-compiled from arm64 host. PYO3_CROSS_PYTHON_VERSION=3.12 tells
+#                 PyO3 not to interrogate the arm64 Python binary for the version.
+#                 PYO3_CROSS_LIB_DIR is derived from the Python prefix so the linker
+#                 can find libpython3.12 (works for both the Python.org universal2
+#                 framework and Homebrew/uv installs).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,14 +28,23 @@ if [[ -z "${PYO3_PYTHON:-}" ]]; then
   fi
 fi
 
+# Derive the lib directory from the Python prefix for PYO3_CROSS_LIB_DIR.
+# This ensures the linker's -lpython3.12 search has a valid -L path during
+# the x86_64 cross-compile step.
+PY_PREFIX="$("${PYO3_PYTHON:-python3}" -c 'import sys; print(sys.prefix)' 2>/dev/null || true)"
+PY_LIB_DIR="${PY_PREFIX}/lib"
+echo "==> Python prefix : $PY_PREFIX"
+echo "==> PYO3_CROSS_LIB_DIR : $PY_LIB_DIR"
+
 echo "==> Building arm64 (native)..."
 cargo build -p unity_dlp_core --release --target "$ARM"
 
 echo "==> Building x86_64 (cross)..."
-# PYO3_CROSS_PYTHON_VERSION prevents PyO3 from running the arm64 Python binary
-# to detect the version.  The linker uses whichever Python lib is in PYO3_PYTHON
-# (universal2 on CI) or PYO3_CROSS_LIB_DIR if set explicitly.
-PYO3_CROSS_PYTHON_VERSION=3.12 \
+# PYO3_CROSS_PYTHON_VERSION: skip arm64 Python binary interrogation.
+# PYO3_CROSS_LIB_DIR: tell the linker where libpython3.12 lives.
+# The Python.org universal2 framework dylib at $PY_PREFIX/lib/libpython3.12.dylib
+# contains both arm64 and x86_64 slices, so the linker picks the right one.
+PYO3_CROSS_PYTHON_VERSION=3.12 PYO3_CROSS_LIB_DIR="${PY_LIB_DIR}" \
   cargo build -p unity_dlp_core --release --target "$X86"
 
 echo "==> Lipo into universal binary..."

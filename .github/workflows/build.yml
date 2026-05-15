@@ -127,79 +127,13 @@ jobs:
           path: unity_package/Plugins/x86_64/libunity_dlp.so
 
   # ── Android arm64-v8a ────────────────────────────────────────────────────────
-  # armeabi-v7a is omitted: python-build-standalone has no armv7-android target.
-  android:
-    name: Android arm64-v8a
-    runs-on: ubuntu-latest
-    env:
-      PYO3_CROSS_PYTHON_VERSION: '3.12'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up Android NDK r27c
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r27c
-          add-to-path: false
-
-      - name: Export ANDROID_NDK_HOME
-        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-
-      - name: Install Rust target
-        run: rustup target add aarch64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Cache Python for Android arm64
-        id: cache-py-android
-        uses: actions/cache@v4
-        with:
-          path: python-android-arm64
-          key: python-3.12.9-android-arm64-20250409
-
-      - name: Download Python 3.12 for Android arm64 (indygreg/python-build-standalone)
-        if: steps.cache-py-android.outputs.cache-hit != 'true'
-        run: |
-          FILE="cpython-3.12.9+20250409-aarch64-unknown-linux-android-lto-full.tar.zst"
-          curl -fsSL -o "$FILE" \
-            "https://github.com/indygreg/python-build-standalone/releases/download/20250409/${FILE}"
-          mkdir python-android-arm64
-          tar --use-compress-program=zstd -xf "$FILE" -C python-android-arm64 --strip-components=1
-
-      - name: Export PYO3_CROSS_LIB_DIR
-        run: echo "PYO3_CROSS_LIB_DIR=$(pwd)/python-android-arm64/install/lib" >> "$GITHUB_ENV"
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: android-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: android-cargo-
-
-      - name: Build Android arm64-v8a
-        run: |
-          cargo ndk \
-            --target aarch64-linux-android \
-            --platform 26 \
-            -- build -p unity_dlp_core --release
-
-      - name: Stage artifact
-        run: |
-          mkdir -p unity_package/Plugins/Android/libs/arm64-v8a
-          cp target/aarch64-linux-android/release/libunity_dlp.so \
-             unity_package/Plugins/Android/libs/arm64-v8a/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: unity_dlp-android-arm64
-          path: unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
+  # BLOCKED: python-build-standalone has no Android target, and no other public
+  # source provides a pre-built libpython3.12 for aarch64-linux-android.
+  # The Android job must be re-added once we have a Python 3.12 Android build
+  # (either compiled from CPython source in CI or via a future python-build-standalone
+  # Android release). Tracked as a Phase 5 prerequisite.
+  #
+  # android: (disabled)
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────
   ios:
@@ -220,15 +154,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: python-ios
-          key: python-3.12-ios-support-b9
+          key: python-3.12-ios-support-b8
 
       - name: Download Python 3.12 for iOS (BeeWare python-apple-support)
         if: steps.cache-py-ios.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL -o Python-3.12-iOS-support.b9.tar.gz \
-            "https://github.com/beeware/python-apple-support/releases/download/3.12-b9/Python-3.12-iOS-support.b9.tar.gz"
+          curl -fsSL -o Python-3.12-iOS-support.b8.tar.gz \
+            "https://github.com/beeware/python-apple-support/releases/download/3.12-b8/Python-3.12-iOS-support.b8.tar.gz"
           mkdir python-ios
-          tar -xzf Python-3.12-iOS-support.b9.tar.gz -C python-ios
+          tar -xzf Python-3.12-iOS-support.b8.tar.gz -C python-ios
 
       # python-apple-support ships Python.xcframework; PyO3 wants a lib dir with
       # libpython3.12.a. Create a shim directory with the right name.
