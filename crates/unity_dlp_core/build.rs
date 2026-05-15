@@ -181,6 +181,14 @@ fn run_hatch_build_py(workspace_root: &PathBuf, ejs_dir: &PathBuf) -> bool {
 // ── Python prefix ─────────────────────────────────────────────────────────────
 
 fn emit_python_prefix(workspace_root: &PathBuf) {
+    // On mobile targets Python is not accessed via PYTHONHOME; leave the prefix
+    // empty so python_host::do_init() skips the set_var call entirely.
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if matches!(target_os.as_str(), "android" | "ios") {
+        println!("cargo:rustc-env=UNITY_DLP_PYTHON_PREFIX=");
+        return;
+    }
+
     let python = find_python(workspace_root);
 
     let output = std::process::Command::new(&python)
