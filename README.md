@@ -2,7 +2,7 @@
 
 > **WARNING: THIS PROJECT IS A PROOF OF CONCEPT AND HAS BEEN ENTIRELY VIBE CODED. Treat it with all due suspicion.**
 
-A Unity 6.3+ native plugin that embeds CPython + yt-dlp to extract media metadata (URL resolution only — no download) without spawning subprocesses at runtime. Built in Rust, consumed by C# P/Invoke.
+A Unity 6.3+ native plugin that embeds CPython + yt-dlp to extract media metadata (URL resolution only — no download) without spawning subprocesses at runtime. Built in Rust, consumed by C# P/Invoke. The Python stdlib and yt-dlp source ship as StreamingAssets zips and are unpacked on first run — the native binary carries only the interpreter and JS engine, so yt-dlp updates don't require rebuilding the plugin.
 
 ## What it does
 
@@ -53,12 +53,13 @@ Windows, macOS, and Linux scripts require [uv](https://github.com/astral-sh/uv) 
 ## Architecture
 
 ```
-Unity C# (YtDlp.cs)
+Unity C# (DlpBootstrap.cs + YtDlp.cs)
+    ├── StreamingAssets/dlp/stdlib/<platform>.zip  ─┐ unpacked to
+    ├── StreamingAssets/dlp/yt_dlp.zip             ─┘ persistentDataPath on first run
     └── P/Invoke → unity_dlp.{dll,dylib,so} / libunity_dlp.a
                        └── Rust (unity_dlp_core)
-                               ├── PyO3 → embedded CPython 3.12
-                               │             └── yt-dlp (zip, embedded)
-                               │                   └── unity_dlp_jsc (JCP shim)
+                               ├── PyO3 → CPython 3.12 (interpreter only)
+                               │             └── yt-dlp + unity_dlp_jsc (loaded from filesystem)
                                └── JS engine (feature-selected at build time)
                                        ├── js-v8: rustyscript → V8  (Windows, macOS)
                                        └── js-quickjs: rquickjs → QuickJS  (Linux, iOS)
