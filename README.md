@@ -17,7 +17,7 @@ YouTube's JS signature challenges are solved via an in-process JS engine: V8 (vi
 | Windows x86_64 | ✅ Working | V8 (rustyscript) |
 | macOS universal | ✅ Working | arm64 + x86_64, lipo'd, V8 (rustyscript) |
 | Linux x86_64 | ✅ Working | QuickJS (rquickjs) |
-| Android arm64-v8a | 🚧 Blocked | needs pre-built libpython for Android NDK |
+| Android arm64-v8a | 🔧 In progress | QuickJS (rquickjs), libpython via Termux .deb |
 | iOS arm64 | ✅ Working | QuickJS (rquickjs), static lib, iOS 16.0+ |
 
 ## Building

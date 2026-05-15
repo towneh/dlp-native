@@ -127,13 +127,87 @@ jobs:
           path: unity_package/Plugins/x86_64/libunity_dlp.so
 
   # ── Android arm64-v8a ────────────────────────────────────────────────────────
-  # BLOCKED: python-build-standalone has no Android target, and no other public
-  # source provides a pre-built libpython3.12 for aarch64-linux-android.
-  # The Android job must be re-added once we have a Python 3.12 Android build
-  # (either compiled from CPython source in CI or via a future python-build-standalone
-  # Android release). Tracked as a Phase 5 prerequisite.
-  #
-  # android: (disabled)
+  android:
+    name: Android arm64-v8a
+    runs-on: ubuntu-latest
+    env:
+      PYO3_CROSS_PYTHON_VERSION: '3.12'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust Android target
+        run: rustup target add aarch64-linux-android
+
+      - name: Install libclang (for rquickjs-sys bindgen)
+        run: sudo apt-get install -y libclang-dev
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Locate Android NDK and configure bindgen sysroot
+        run: |
+          NDK_DIR="$(ls -d "$ANDROID_SDK_ROOT"/ndk/*/ | sort -V | tail -1)"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          NDK_SYSROOT="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26" \
+            >> "$GITHUB_ENV"
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: android-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: android-cargo-
+
+      - name: Download Termux Python 3.12 for aarch64
+        run: |
+          curl -fsSL \
+            "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.xz" \
+            | xz -d > /tmp/termux-packages.txt
+          PYTHON_FILE="$(awk '/^Package: python$/{found=1} found && /^Filename:/{print $2; exit}' \
+            /tmp/termux-packages.txt)"
+          echo "==> $PYTHON_FILE"
+          curl -fsSL "https://packages.termux.dev/apt/termux-main/$PYTHON_FILE" -o /tmp/python.deb
+          mkdir -p /tmp/termux-extract
+          cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
+
+      - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
+        run: |
+          PREFIX="/tmp/termux-extract/data/data/com.termux/files/usr"
+          mkdir -p python-android-lib
+          # libpython3.12.so for the linker (-L / -lpython3.12)
+          cp -L \
+            "$(find "$PREFIX/lib" -maxdepth 1 -name 'libpython3.12*.so*' | sort | head -1)" \
+            python-android-lib/libpython3.12.so
+          # _sysconfigdata*.py so pyo3-build-config can read the Python ABI flags
+          cp \
+            "$(find "$PREFIX/lib/python3.12" -name '_sysconfigdata*.py' | head -1)" \
+            python-android-lib/
+          echo "PYO3_CROSS_LIB_DIR=$(pwd)/python-android-lib" >> "$GITHUB_ENV"
+
+      - name: Build Android arm64-v8a
+        run: |
+          cargo ndk \
+            --target aarch64-linux-android \
+            --platform 26 \
+            -- build -p unity_dlp_core --release \
+            --no-default-features --features js-quickjs
+
+      - name: Stage artifact
+        run: |
+          mkdir -p unity_package/Plugins/Android/libs/arm64-v8a
+          cp target/aarch64-linux-android/release/libunity_dlp.so \
+            unity_package/Plugins/Android/libs/arm64-v8a/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity_dlp-android-arm64
+          path: unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────
   ios:
