@@ -37,30 +37,37 @@ namespace YtDlp.Editor
             if (pkg == null)
                 throw new BuildFailedException("[YtDlp] Cannot find YtDlp package path.");
 
-            var outZip = Path.Combine(
-                pkg.resolvedPath, "StreamingAssets", "dlp", "stdlib", platformId + ".zip");
+            var pkgDlpDir  = Path.Combine(pkg.resolvedPath, "StreamingAssets", "dlp");
+            var stdlibZip  = Path.Combine(pkgDlpDir, "stdlib", platformId + ".zip");
+            var ytDlpZip   = Path.Combine(pkgDlpDir, "yt_dlp.zip");
 
-            if (File.Exists(outZip))
+            // Stage stdlib into the package if it's missing
+            if (!File.Exists(stdlibZip))
             {
-                Debug.Log($"[YtDlp] stdlib/{platformId}.zip already present — skipping.");
-                return;
+                var python = FindPython();
+                if (python == null)
+                    throw new BuildFailedException(
+                        "[YtDlp] Python 3.x not found. " +
+                        "Set DLP_PYTHON_HOME to your Python prefix, or run: uv python install 3.12");
+
+                Debug.Log($"[YtDlp] Staging stdlib/{platformId}.zip using {python} …");
+                RunStageScript(python, platformId, stdlibZip);
+
+                if (!File.Exists(stdlibZip))
+                    throw new BuildFailedException(
+                        $"[YtDlp] Stdlib staging failed — {stdlibZip} was not created.");
             }
 
-            var python = FindPython();
-            if (python == null)
+            if (!File.Exists(ytDlpZip))
                 throw new BuildFailedException(
-                    "[YtDlp] Python 3.x not found. " +
-                    "Set DLP_PYTHON_HOME to your Python prefix, or run: uv python install 3.12");
+                    $"[YtDlp] yt_dlp.zip not found at {ytDlpZip}. Run the build script first.");
 
-            Debug.Log($"[YtDlp] Staging stdlib/{platformId}.zip using {python} …");
-            RunStageScript(python, platformId, outZip);
-
-            if (!File.Exists(outZip))
-                throw new BuildFailedException(
-                    $"[YtDlp] Stdlib staging failed — {outZip} was not created.");
-
+            // Copy both assets into the project's Assets/StreamingAssets/dlp/ so Unity
+            // includes them in the player build (UPM package StreamingAssets are not
+            // reliably copied into player builds by the build pipeline).
+            CopyToProjectStreamingAssets(stdlibZip, ytDlpZip, platformId);
             AssetDatabase.Refresh();
-            Debug.Log($"[YtDlp] Staged → {outZip}");
+            Debug.Log($"[YtDlp] DLP assets staged into project StreamingAssets.");
         }
 
         // ── Also expose as a menu item for manual / on-demand staging ─────────
@@ -78,26 +85,53 @@ namespace YtDlp.Editor
             var pkg = PackageInfo.FindForAssembly(typeof(DlpBuildPreprocessor).Assembly);
             if (pkg == null) { Debug.LogError("[YtDlp] Cannot find package path."); return; }
 
-            var outZip = Path.Combine(
-                pkg.resolvedPath, "StreamingAssets", "dlp", "stdlib", platformId + ".zip");
+            var pkgDlpDir = Path.Combine(pkg.resolvedPath, "StreamingAssets", "dlp");
+            var stdlibZip = Path.Combine(pkgDlpDir, "stdlib", platformId + ".zip");
+            var ytDlpZip  = Path.Combine(pkgDlpDir, "yt_dlp.zip");
 
-            var python = FindPython();
-            if (python == null) { Debug.LogError("[YtDlp] Python not found."); return; }
-
-            RunStageScript(python, platformId, outZip);
-
-            if (File.Exists(outZip))
+            if (!File.Exists(stdlibZip))
             {
-                AssetDatabase.Refresh();
-                Debug.Log($"[YtDlp] Staged → {outZip}");
+                var python = FindPython();
+                if (python == null) { Debug.LogError("[YtDlp] Python not found."); return; }
+
+                RunStageScript(python, platformId, stdlibZip);
+
+                if (!File.Exists(stdlibZip))
+                {
+                    Debug.LogError($"[YtDlp] Staging failed — {stdlibZip} not created.");
+                    return;
+                }
             }
-            else
+
+            if (!File.Exists(ytDlpZip))
             {
-                Debug.LogError($"[YtDlp] Staging failed — {outZip} not created.");
+                Debug.LogError($"[YtDlp] yt_dlp.zip not found at {ytDlpZip}. Run the build script first.");
+                return;
             }
+
+            CopyToProjectStreamingAssets(stdlibZip, ytDlpZip, platformId);
+            AssetDatabase.Refresh();
+            Debug.Log($"[YtDlp] DLP assets staged into project StreamingAssets.");
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static void CopyToProjectStreamingAssets(
+            string stdlibZip, string ytDlpZip, string platformId)
+        {
+            var projDlpDir    = Path.Combine(Application.dataPath, "StreamingAssets", "dlp");
+            var projStdlibDir = Path.Combine(projDlpDir, "stdlib");
+            Directory.CreateDirectory(projStdlibDir);
+
+            var destStdlib = Path.Combine(projStdlibDir, platformId + ".zip");
+            var destYtDlp  = Path.Combine(projDlpDir, "yt_dlp.zip");
+
+            File.Copy(stdlibZip, destStdlib, overwrite: true);
+            File.Copy(ytDlpZip,  destYtDlp,  overwrite: true);
+
+            Debug.Log($"[YtDlp] Copied stdlib/{platformId}.zip → {destStdlib}");
+            Debug.Log($"[YtDlp] Copied yt_dlp.zip → {destYtDlp}");
+        }
 
         private static string ToPlatformId(BuildTarget t) => t switch
         {
