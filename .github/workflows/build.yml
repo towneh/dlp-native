@@ -91,7 +91,8 @@ jobs:
         run: bash scripts/build-macos-universal.sh
 
       - name: Stage Python stdlib
-        run: "$PYO3_PYTHON" scripts/stage_stdlib.py macos-universal --python "$PYO3_PYTHON"
+        run: |
+          "$PYO3_PYTHON" scripts/stage_stdlib.py macos-universal --python "$PYO3_PYTHON"
 
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --release -- version
