@@ -43,6 +43,8 @@ def main():
                    help='Explicit Python prefix dir (for cross-compiled targets)')
     p.add_argument('--bases', nargs='+',
                    help='Sub-dirs of prefix to bundle (default: auto-detected)')
+    p.add_argument('--exclude-dirs', nargs='+', metavar='DIR', default=[],
+                   help='Directory names to skip (e.g. lib-dynload test)')
     args = p.parse_args()
 
     # Resolve prefix
@@ -80,8 +82,9 @@ def main():
             if not os.path.isdir(base_dir):
                 print(f'WARNING: {base_dir!r} not found, skipping', file=sys.stderr)
                 continue
+            exclude = set(args.exclude_dirs) | {'__pycache__'}
             for root, dirs, files in os.walk(base_dir):
-                dirs[:] = [d for d in dirs if d != '__pycache__']
+                dirs[:] = [d for d in dirs if d not in exclude]
                 for f in files:
                     full = os.path.join(root, f)
                     arc = os.path.relpath(full, prefix).replace(os.sep, '/')

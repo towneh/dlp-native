@@ -252,6 +252,11 @@ jobs:
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
+      - name: Install Python 3.12 (host — stdlib source for iOS)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Cache Python for iOS arm64 (python-apple-support)
         id: cache-py-ios
         uses: actions/cache@v4
@@ -296,19 +301,12 @@ jobs:
 
       - name: Stage Python stdlib
         run: |
-          mkdir -p unity_package/StreamingAssets/dlp/stdlib
-          # python-apple-support ships the stdlib as python-stdlib.zip at the
-          # tarball root, not inside the framework Resources directory.
-          STDLIB_ZIP="$(find python-ios -maxdepth 3 -name 'python-stdlib.zip' | sort | tail -1)"
-          if [ -n "$STDLIB_ZIP" ]; then
-            echo "==> Copying bundled stdlib: $STDLIB_ZIP"
-            cp "$STDLIB_ZIP" unity_package/StreamingAssets/dlp/stdlib/ios-arm64.zip
-          else
-            echo "==> python-stdlib.zip not found; probing framework Resources..."
-            find python-ios -maxdepth 6 -type d | sort
-            python3 scripts/stage_stdlib.py ios-arm64 \
-              --prefix "${IOS_FRAMEWORK}/Resources"
-          fi
+          # python-apple-support only ships the compiled static lib + headers;
+          # the stdlib comes from the macOS host Python installed above.
+          # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
+          # extensions are compiled into libpython3.12.a by python-apple-support).
+          python3 scripts/stage_stdlib.py ios-arm64 \
+            --exclude-dirs lib-dynload test
 
       - name: Stage artifact
         run: |
