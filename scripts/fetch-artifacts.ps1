@@ -64,16 +64,10 @@ try {
             continue
         }
 
-        # Artifacts preserve repo-relative paths, so unity_package/ is at the root.
-        $srcPkg = Join-Path $platTmp "unity_package"
-        if (-not (Test-Path $srcPkg)) {
-            Write-Warning "Expected unity_package/ not found in $platTmp"
-            Write-Warning "Contents: $(Get-ChildItem $platTmp -Name)"
-            continue
-        }
-
+        # upload-artifact@v4 strips the common path prefix, so unity_package/ is
+        # stripped and Plugins/ + StreamingAssets/ land at the root of the download dir.
         $dstPkg = Join-Path $repoRoot "unity_package"
-        Get-ChildItem $srcPkg | ForEach-Object {
+        Get-ChildItem $platTmp | ForEach-Object {
             Copy-Item $_.FullName (Join-Path $dstPkg $_.Name) -Recurse -Force
         }
         Write-Host "    Merged into unity_package/"

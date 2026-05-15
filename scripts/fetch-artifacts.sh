@@ -79,17 +79,9 @@ for PLAT in "${PLATFORMS[@]}"; do
     mkdir -p "$PLAT_TMP"
     gh run download "$RUN_ID" --name "$NAME" --dir "$PLAT_TMP"
 
-    # gh run download --dir puts files directly into the dir (no artifact-name subdir).
-    # Artifacts preserve repo-relative paths, so unity_package/ is at the root.
-    SRC_PKG="$PLAT_TMP/unity_package"
-    if [[ ! -d "$SRC_PKG" ]]; then
-        echo "WARNING: Expected unity_package/ not found in $PLAT_TMP" >&2
-        echo "Contents:" >&2
-        ls "$PLAT_TMP" >&2
-        continue
-    fi
-
-    cp -r "$SRC_PKG/." "$REPO_ROOT/unity_package/"
+    # upload-artifact@v4 strips the common path prefix, so unity_package/ is stripped
+    # and Plugins/ + StreamingAssets/ land at the root of the download dir.
+    cp -r "$PLAT_TMP/." "$REPO_ROOT/unity_package/"
     echo "    Merged into unity_package/"
 done
 
