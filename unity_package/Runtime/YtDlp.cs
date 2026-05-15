@@ -65,7 +65,10 @@ namespace YtDlp
         /// </summary>
         public static void EnsureInit()
         {
-            DlpBootstrap.EnsureInitAsync().GetAwaiter().GetResult();
+            // Task.Run moves execution off the Unity main-thread SynchronizationContext
+            // so that internal awaits inside DlpBootstrap don't deadlock when we
+            // block here with GetAwaiter().GetResult().
+            Task.Run(() => DlpBootstrap.EnsureInitAsync()).GetAwaiter().GetResult();
         }
 
         public static string Version()
