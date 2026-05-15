@@ -165,13 +165,11 @@ jobs:
 
       - name: Download Termux Python 3.12 for aarch64
         run: |
-          curl -fsSL \
-            "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.xz" \
-            | xz -d > /tmp/termux-packages.txt
-          PYTHON_FILE="$(awk '/^Package: python$/{found=1} found && /^Filename:/{print $2; exit}' \
-            /tmp/termux-packages.txt)"
-          echo "==> $PYTHON_FILE"
-          curl -fsSL "https://packages.termux.dev/apt/termux-main/$PYTHON_FILE" -o /tmp/python.deb
+          BASE="https://packages.termux.dev/apt/termux-main/pool/main/p/python"
+          PYTHON_DEB="$(curl -fsSL "$BASE/" \
+            | grep -oP 'python_[^"]+_aarch64\.deb' | sort -V | tail -1)"
+          echo "==> $PYTHON_DEB"
+          curl -fsSL "$BASE/$PYTHON_DEB" -o /tmp/python.deb
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
 
