@@ -26,7 +26,14 @@ fn main() {
                 }
             };
 
-            let rc = unity_dlp_init();
+            // DLP_PYTHON_HOME / DLP_PACKAGES_PATH let callers point the CLI at a
+            // local Python prefix and yt_dlp.zip without rebuilding.
+            let python_home = std::env::var("DLP_PYTHON_HOME").unwrap_or_default();
+            let packages_path = std::env::var("DLP_PACKAGES_PATH").unwrap_or_default();
+            let home_c = CString::new(python_home).expect("DLP_PYTHON_HOME contains NUL");
+            let pkgs_c = CString::new(packages_path).expect("DLP_PACKAGES_PATH contains NUL");
+
+            let rc = unity_dlp_init(home_c.as_ptr(), pkgs_c.as_ptr());
             if rc != UNITY_DLP_OK {
                 eprintln!("init failed: {rc}");
                 std::process::exit(1);

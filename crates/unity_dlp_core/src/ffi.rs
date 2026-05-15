@@ -38,11 +38,19 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Initialise the native library.
 ///
+/// `python_home_utf8`   — NUL-terminated path to the unpacked Python prefix
+///                        (sets PYTHONHOME). Nullable; null or empty skips it.
+/// `packages_path_utf8` — NUL-terminated path added to sys.path (a .zip or a
+///                        directory). Nullable; null or empty skips it.
+///
 /// Must succeed before calling any other function. Safe to call from multiple
 /// threads — only the first call runs initialisation; subsequent calls are
 /// no-ops that return UNITY_DLP_OK.
 #[no_mangle]
-pub extern "C" fn unity_dlp_init() -> UnityDlpResult {
+pub extern "C" fn unity_dlp_init(
+    python_home_utf8: *const c_char,
+    packages_path_utf8: *const c_char,
+) -> UnityDlpResult {
     if INITIALIZED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -52,7 +60,33 @@ pub extern "C" fn unity_dlp_init() -> UnityDlpResult {
 
     logging::init();
 
-    if let Err(e) = python_host::init() {
+    let python_home = if python_home_utf8.is_null() {
+        ""
+    } else {
+        match unsafe { CStr::from_ptr(python_home_utf8) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_last_error("python_home is not valid UTF-8");
+                INITIALIZED.store(false, Ordering::SeqCst);
+                return UNITY_DLP_ERR_INIT;
+            }
+        }
+    };
+
+    let packages_path = if packages_path_utf8.is_null() {
+        ""
+    } else {
+        match unsafe { CStr::from_ptr(packages_path_utf8) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                set_last_error("packages_path is not valid UTF-8");
+                INITIALIZED.store(false, Ordering::SeqCst);
+                return UNITY_DLP_ERR_INIT;
+            }
+        }
+    };
+
+    if let Err(e) = python_host::init(python_home, packages_path) {
         log::error!("unity_dlp_init: Python init failed: {e}");
         set_last_error(e);
         INITIALIZED.store(false, Ordering::SeqCst);

@@ -36,6 +36,12 @@ jobs:
       - name: Build
         run: pwsh scripts/build-host.ps1
 
+      - name: Stage Python stdlib
+        shell: pwsh
+        run: |
+          $python = (uv python find 3.12).Trim()
+          & $python scripts/stage_stdlib.py windows-x86_64 --python $python
+
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --release -- version
 
@@ -43,7 +49,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unity_dlp-windows-x64
-          path: unity_package/Plugins/x86_64/unity_dlp.dll
+          path: |
+            unity_package/Plugins/x86_64/unity_dlp.dll
+            unity_package/StreamingAssets/dlp/
 
   # ── macOS universal ──────────────────────────────────────────────────────────
   macos:
@@ -82,6 +90,9 @@ jobs:
       - name: Build universal dylib
         run: bash scripts/build-macos-universal.sh
 
+      - name: Stage Python stdlib
+        run: "$PYO3_PYTHON" scripts/stage_stdlib.py macos-universal --python "$PYO3_PYTHON"
+
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --release -- version
 
@@ -89,7 +100,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unity_dlp-macos-universal
-          path: unity_package/Plugins/x86_64/unity_dlp.dylib
+          path: |
+            unity_package/Plugins/x86_64/unity_dlp.dylib
+            unity_package/StreamingAssets/dlp/
 
   # ── Linux x64 ───────────────────────────────────────────────────────────────
   linux:
@@ -117,6 +130,11 @@ jobs:
       - name: Build
         run: bash scripts/build-host.sh
 
+      - name: Stage Python stdlib
+        run: |
+          PYTHON="$(uv python find 3.12)"
+          "$PYTHON" scripts/stage_stdlib.py linux-x86_64 --python "$PYTHON"
+
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --release --no-default-features --features js-quickjs -- version
 
@@ -124,7 +142,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unity_dlp-linux-x64
-          path: unity_package/Plugins/x86_64/libunity_dlp.so
+          path: |
+            unity_package/Plugins/x86_64/libunity_dlp.so
+            unity_package/StreamingAssets/dlp/
 
   # ── Android arm64-v8a ────────────────────────────────────────────────────────
   android:
@@ -187,6 +207,8 @@ jobs:
           # LIBDIR from the Termux sysconfig (/data/data/com.termux/...) which doesn't
           # exist on the runner, so the linker search path is wrong.
           echo "PYO3_NO_PYTHON=1" >> "$GITHUB_ENV"
+          # Expose prefix for stdlib staging
+          echo "TERMUX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
 
       - name: Build Android arm64-v8a
         run: |
@@ -195,6 +217,10 @@ jobs:
             --platform 26 \
             -- build -p unity_dlp_core --release \
             --no-default-features --features js-quickjs
+
+      - name: Stage Python stdlib
+        run: |
+          python3 scripts/stage_stdlib.py android-arm64-v8a --prefix "$TERMUX_PREFIX"
 
       - name: Stage artifact
         run: |
@@ -206,7 +232,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unity_dlp-android-arm64
-          path: unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
+          path: |
+            unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
+            unity_package/StreamingAssets/dlp/
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────
   ios:
@@ -248,6 +276,7 @@ jobs:
           echo "PYO3_CROSS_LIB_DIR=$(pwd)/python-ios-lib" >> "$GITHUB_ENV"
           # Headers live inside the framework
           echo "CFLAGS=-I${FRAMEWORK}/Headers" >> "$GITHUB_ENV"
+          echo "IOS_FRAMEWORK=$FRAMEWORK" >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -264,6 +293,11 @@ jobs:
           PYO3_NO_PYTHON=1 cargo build -p unity_dlp_core --release --target aarch64-apple-ios \
             --no-default-features --features js-quickjs
 
+      - name: Stage Python stdlib
+        run: |
+          python3 scripts/stage_stdlib.py ios-arm64 \
+            --prefix "${IOS_FRAMEWORK}/Resources"
+
       - name: Stage artifact
         run: |
           mkdir -p unity_package/Plugins/iOS
@@ -273,4 +307,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unity_dlp-ios-arm64
-          path: unity_package/Plugins/iOS/libunity_dlp.a
+          path: |
+            unity_package/Plugins/iOS/libunity_dlp.a
+            unity_package/StreamingAssets/dlp/

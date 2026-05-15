@@ -1,36 +1,32 @@
 use once_cell::sync::OnceCell;
 use pyo3::prelude::*;
-use std::path::PathBuf;
-
-/// Embedded yt-dlp source zip produced by build.rs from vendor/yt-dlp.
-static YT_DLP_ZIP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/yt_dlp.zip"));
-
-/// sys.prefix of the CPython used at build time, baked in by build.rs.
-/// Empty on cross-compile targets (iOS/Android) where PYTHONHOME is not used.
-static PYTHON_PREFIX: &str = env!("UNITY_DLP_PYTHON_PREFIX");
 
 static INIT_RESULT: OnceCell<Result<(), String>> = OnceCell::new();
 
-/// Initialise the embedded Python interpreter and place yt-dlp on sys.path.
+/// Initialise the embedded Python interpreter.
+///
+/// `python_home`   — path to the unpacked Python prefix (sets PYTHONHOME).
+///                   Empty string skips PYTHONHOME configuration.
+/// `packages_path` — path added to sys.path (a .zip or a directory).
+///                   Empty string skips sys.path modification.
 ///
 /// Idempotent: the first call runs initialisation; subsequent calls return the
-/// cached result (success or failure). Never calls Py_Finalize.
-pub fn init() -> Result<(), String> {
+/// cached result regardless of the arguments passed. Never calls Py_Finalize.
+pub fn init(python_home: &str, packages_path: &str) -> Result<(), String> {
     INIT_RESULT
-        .get_or_init(do_init)
+        .get_or_init(|| do_init(python_home, packages_path))
         .as_ref()
         .map(|_| ())
         .map_err(|e| e.clone())
 }
 
-fn do_init() -> Result<(), String> {
+fn do_init(python_home: &str, packages_path: &str) -> Result<(), String> {
     // Set PYTHONHOME before Py_Initialize so the embedded interpreter can locate
     // its stdlib and C-extension modules (.pyd / .so in the DLLs / lib-dynload dir).
-    // On mobile targets the stdlib is bundled differently and PYTHON_PREFIX is empty.
-    if !PYTHON_PREFIX.is_empty() {
+    if !python_home.is_empty() {
         // SAFETY: Python has not been initialised yet, so no Python threads exist
         // that might race on getenv.
-        unsafe { std::env::set_var("PYTHONHOME", PYTHON_PREFIX) };
+        unsafe { std::env::set_var("PYTHONHOME", python_home) };
     }
 
     // pyo3::prepare_freethreaded_python calls Py_InitializeEx(0). We do this
@@ -38,15 +34,15 @@ fn do_init() -> Result<(), String> {
     // first, then init, then sys.path configuration.
     pyo3::prepare_freethreaded_python();
 
-    let zip_path = write_yt_dlp_zip()?;
-
     Python::with_gil(|py| -> Result<(), String> {
-        let sys = py.import_bound("sys").map_err(|e| format!("import sys: {e}"))?;
-        let path = sys
-            .getattr("path")
-            .map_err(|e| format!("sys.path get: {e}"))?;
-        path.call_method1("insert", (0i32, zip_path.to_str().unwrap_or("")))
-            .map_err(|e| format!("sys.path.insert: {e}"))?;
+        if !packages_path.is_empty() {
+            // packages_path may be a .zip or a directory; Python handles both.
+            let sys = py.import_bound("sys").map_err(|e| format!("import sys: {e}"))?;
+            sys.getattr("path")
+                .map_err(|e| format!("sys.path get: {e}"))?
+                .call_method1("insert", (0i32, packages_path))
+                .map_err(|e| format!("sys.path.insert: {e}"))?;
+        }
 
         // Register the unity_dlp_js PyO3 module so unity_dlp_jsc can import it.
         crate::jsc_provider::register_module(py)?;
@@ -57,20 +53,11 @@ fn do_init() -> Result<(), String> {
             .map_err(|e| format!("import unity_dlp_jsc: {e}"))?;
 
         log::debug!(
-            "python_host: interpreter ready, yt-dlp zip on sys.path ({}) — unity_dlp_jsc registered",
-            zip_path.display()
+            "python_host: interpreter ready (home={:?} packages={:?}) — unity_dlp_jsc registered",
+            python_home, packages_path
         );
         Ok(())
     })
-}
-
-fn write_yt_dlp_zip() -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join("unity_dlp");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create temp dir: {e}"))?;
-    let path = dir.join("yt_dlp.zip");
-    // Always overwrite so a plugin update refreshes the embedded source.
-    std::fs::write(&path, YT_DLP_ZIP).map_err(|e| format!("write yt_dlp.zip: {e}"))?;
-    Ok(path)
 }
 
 /// Acquire the Python GIL and run `f`.

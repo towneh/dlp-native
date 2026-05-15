@@ -9,10 +9,26 @@ using YtDlp.Native;
 
 namespace YtDlp
 {
+    /// <summary>Filesystem paths handed to the native plugin on init.</summary>
+    public readonly struct DlpPaths
+    {
+        /// <summary>Path to the unpacked Python prefix (sets PYTHONHOME). Empty skips it.</summary>
+        public readonly string PythonHome;
+        /// <summary>Path added to sys.path (a .zip or a directory). Empty skips it.</summary>
+        public readonly string PackagesPath;
+
+        public DlpPaths(string pythonHome, string packagesPath)
+        {
+            PythonHome   = pythonHome   ?? string.Empty;
+            PackagesPath = packagesPath ?? string.Empty;
+        }
+    }
+
     /// <summary>
     /// Public Unity API for yt-dlp media extraction.
     ///
-    /// Call <see cref="EnsureInit"/> once (e.g. in Awake) before using
+    /// Call <see cref="EnsureInit(DlpPaths)"/> (or await
+    /// <see cref="DlpBootstrap.EnsureInitAsync"/>) once before using
     /// <see cref="ExtractAsync"/>. All Extract calls run on a thread-pool
     /// thread — never call <see cref="Extract"/> directly on the main thread.
     /// </summary>
@@ -25,15 +41,31 @@ namespace YtDlp
             NullValueHandling = NullValueHandling.Ignore,
         };
 
-        public static void EnsureInit()
+        /// <summary>
+        /// Initialise the native library with explicit Python paths.
+        /// Idempotent — subsequent calls after success are no-ops.
+        /// </summary>
+        public static void EnsureInit(DlpPaths paths)
         {
             if (Interlocked.Exchange(ref _initialized, 1) == 0)
             {
-                var rc = NativeLib.unity_dlp_init();
+                var rc = NativeLib.unity_dlp_init(paths.PythonHome, paths.PackagesPath);
                 if (rc != NativeLib.OK)
+                {
+                    Interlocked.Exchange(ref _initialized, 0);
                     throw new InvalidOperationException(
                         $"unity_dlp_init failed with code {rc}");
+                }
             }
+        }
+
+        /// <summary>
+        /// Blocking convenience wrapper — unpacks assets and initialises.
+        /// Prefer <c>await DlpBootstrap.EnsureInitAsync()</c> on the main thread.
+        /// </summary>
+        public static void EnsureInit()
+        {
+            DlpBootstrap.EnsureInitAsync().GetAwaiter().GetResult();
         }
 
         public static string Version()

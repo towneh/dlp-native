@@ -25,7 +25,9 @@ namespace YtDlp.Native
 #endif
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int unity_dlp_init();
+        public static extern int unity_dlp_init(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string pythonHomeUtf8,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string packagesPathUtf8);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int unity_dlp_shutdown();

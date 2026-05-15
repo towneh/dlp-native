@@ -13,8 +13,7 @@ fn main() {
         .to_owned();
 
     generate_header(&crate_dir, &workspace_root, &out_dir);
-    bundle_zip(&workspace_root, &out_dir);
-    emit_python_prefix(&workspace_root);
+    bundle_zip(&workspace_root);
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/ffi.rs");
@@ -59,8 +58,13 @@ fn generate_header(crate_dir: &str, workspace_root: &PathBuf, out_dir: &PathBuf)
 ///   yt_dlp/          — from vendor/yt-dlp/
 ///   yt_dlp_ejs/      — from vendor/yt-dlp-ejs/yt_dlp_ejs/ + built JS
 ///   unity_dlp_jsc/   — from python/unity_dlp_jsc/unity_dlp_jsc/
-fn bundle_zip(workspace_root: &PathBuf, out_dir: &PathBuf) {
-    let zip_path = out_dir.join("yt_dlp.zip");
+///
+/// The zip lands in unity_package/StreamingAssets/dlp/ so it can be read at
+/// runtime by DlpBootstrap and passed to unity_dlp_init as packages_path.
+fn bundle_zip(workspace_root: &PathBuf) {
+    let dest_dir = workspace_root.join("unity_package/StreamingAssets/dlp");
+    std::fs::create_dir_all(&dest_dir).expect("create StreamingAssets/dlp");
+    let zip_path = dest_dir.join("yt_dlp.zip");
     let file = std::fs::File::create(&zip_path).expect("create yt_dlp.zip");
     let mut zip = zip::ZipWriter::new(file);
     let opts = zip::write::SimpleFileOptions::default()
@@ -86,6 +90,7 @@ fn bundle_zip(workspace_root: &PathBuf, out_dir: &PathBuf) {
     }
 
     zip.finish().expect("finalise yt_dlp.zip");
+    println!("cargo:warning=yt_dlp.zip staged to {}", zip_path.display());
 }
 
 /// Walk `src_dir` and add all `.py` / `.json` / `.html` files to the zip under
@@ -174,35 +179,6 @@ fn run_hatch_build_py(workspace_root: &PathBuf, ejs_dir: &PathBuf) -> bool {
                 .unwrap_or_else(|e| e.to_string());
             eprintln!("cargo:warning=hatch_build.py exited with {reason}");
             false
-        }
-    }
-}
-
-// ── Python prefix ─────────────────────────────────────────────────────────────
-
-fn emit_python_prefix(workspace_root: &PathBuf) {
-    // On mobile targets Python is not accessed via PYTHONHOME; leave the prefix
-    // empty so python_host::do_init() skips the set_var call entirely.
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if matches!(target_os.as_str(), "android" | "ios") {
-        println!("cargo:rustc-env=UNITY_DLP_PYTHON_PREFIX=");
-        return;
-    }
-
-    let python = find_python(workspace_root);
-
-    let output = std::process::Command::new(&python)
-        .args(["-c", "import sys; print(sys.prefix, end='')"])
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let prefix = String::from_utf8(o.stdout).unwrap_or_default();
-            println!("cargo:rustc-env=UNITY_DLP_PYTHON_PREFIX={}", prefix);
-        }
-        _ => {
-            eprintln!("cargo:warning=Could not query Python prefix from {python}");
-            println!("cargo:rustc-env=UNITY_DLP_PYTHON_PREFIX=");
         }
     }
 }
