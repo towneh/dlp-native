@@ -14,6 +14,7 @@ unity_package/Plugins/x86_64/*.dll
 unity_package/Plugins/x86_64/*.dylib
 unity_package/Plugins/x86_64/*.so
 unity_package/Plugins/x86_64/libpython*.so*
+unity_package/Plugins/x86_64/Python
 unity_package/Plugins/iOS/*.a
 unity_package/Plugins/Android/libs/**/*.so
 

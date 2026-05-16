@@ -50,6 +50,24 @@ mkdir -p "$DEST"
 cp "$LIB" "$DEST/"
 echo "==> Staged: $LIB → $DEST/"
 
+# ── Bundle Python dylib alongside the plugin (macOS) ──────────────────────────
+# Patch the absolute build-time framework path to @loader_path so macOS finds
+# the dylib next to unity_dlp.dylib without requiring a system framework install.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  PYLIB_REF="$(otool -L "$DEST/libunity_dlp.dylib" | awk '/[Pp]ython/ { print $1 }' | head -1)"
+  if [[ -n "$PYLIB_REF" && -e "$PYLIB_REF" ]]; then
+    PYLIB_NAME="$(basename "$PYLIB_REF")"
+    cp -L "$PYLIB_REF" "$DEST/$PYLIB_NAME"
+    install_name_tool -id "@loader_path/$PYLIB_NAME" "$DEST/$PYLIB_NAME"
+    install_name_tool -change "$PYLIB_REF" "@loader_path/$PYLIB_NAME" "$DEST/libunity_dlp.dylib"
+    codesign --force --sign - "$DEST/$PYLIB_NAME"
+    codesign --force --sign - "$DEST/libunity_dlp.dylib"
+    echo "==> Bundled: $PYLIB_NAME → $DEST/"
+  else
+    echo "WARNING: Python dylib not found (ref='$PYLIB_REF') — skipping bundle" >&2
+  fi
+fi
+
 # ── Bundle libpython alongside the plugin (Linux only) ────────────────────────
 # Unity loads the plugin from its Plugins dir; $ORIGIN RPATH makes ld.so look
 # there for libpython. We copy the exact file the plugin's DT_NEEDED records.

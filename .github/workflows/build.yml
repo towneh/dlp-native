@@ -103,6 +103,7 @@ jobs:
           name: unity_dlp-macos-universal
           path: |
             unity_package/Plugins/x86_64/unity_dlp.dylib
+            unity_package/Plugins/x86_64/Python
             unity_package/StreamingAssets/dlp/
 
   # ── Linux x64 ───────────────────────────────────────────────────────────────
