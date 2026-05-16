@@ -11,13 +11,16 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-declare -A ARTIFACT_NAMES=(
-    [windows]="unity_dlp-windows-x64"
-    [macos]="unity_dlp-macos-universal"
-    [linux]="unity_dlp-linux-x64"
-    [android]="unity_dlp-android-arm64"
-    [ios]="unity_dlp-ios-arm64"
-)
+artifact_name() {
+    case "$1" in
+        windows) echo "unity_dlp-windows-x64" ;;
+        macos)   echo "unity_dlp-macos-universal" ;;
+        linux)   echo "unity_dlp-linux-x64" ;;
+        android) echo "unity_dlp-android-arm64" ;;
+        ios)     echo "unity_dlp-ios-arm64" ;;
+        *)       echo "" ;;
+    esac
+}
 
 ALL_PLATFORMS=(windows macos linux android ios)
 PLATFORMS=()
@@ -68,9 +71,9 @@ if [[ -z "$RUN_ID" ]]; then
 fi
 
 for PLAT in "${PLATFORMS[@]}"; do
-    NAME="${ARTIFACT_NAMES[$PLAT]:-}"
+    NAME="$(artifact_name "$PLAT")"
     if [[ -z "$NAME" ]]; then
-        echo "WARNING: Unknown platform '$PLAT'. Valid: ${!ARTIFACT_NAMES[*]}" >&2
+        echo "WARNING: Unknown platform '$PLAT'. Valid: ${ALL_PLATFORMS[*]}" >&2
         continue
     fi
 
