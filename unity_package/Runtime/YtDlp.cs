@@ -1,10 +1,12 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using UnityEngine;
 using YtDlp.Native;
 
 namespace YtDlp
@@ -41,6 +43,42 @@ namespace YtDlp
             NullValueHandling = NullValueHandling.Ignore,
         };
 
+        // Every native call (unity_dlp_init, unity_dlp_extract) runs on this one
+        // dedicated thread. Embedded CPython pins its interpreter + GIL + thread-state
+        // to whichever thread calls Py_Initialize; the .NET thread pool hands work to
+        // transient, rotating threads, so initialising on one pool thread and later
+        // touching the interpreter from another corrupts that state and crashes. A
+        // single long-lived worker keeps every call on a consistent thread — off the
+        // main thread, so nothing blocks the Unity main loop.
+        private static readonly BlockingCollection<Action> _work = new BlockingCollection<Action>();
+        private static readonly Thread _worker = StartWorker();
+
+        private static Thread StartWorker()
+        {
+            var t = new Thread(() =>
+            {
+                foreach (var job in _work.GetConsumingEnumerable())
+                    job();
+            })
+            {
+                IsBackground = true,
+                Name = "YtDlp-Python",
+            };
+            t.Start();
+            return t;
+        }
+
+        private static Task<T> RunOnWorker<T>(Func<T> fn)
+        {
+            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _work.Add(() =>
+            {
+                try { tcs.SetResult(fn()); }
+                catch (Exception e) { tcs.SetException(e); }
+            });
+            return tcs.Task;
+        }
+
         /// <summary>
         /// Initialise the native library with explicit Python paths.
         /// Idempotent — subsequent calls after success are no-ops.
@@ -49,14 +87,21 @@ namespace YtDlp
         {
             if (Interlocked.Exchange(ref _initialized, 1) == 0)
             {
-                var rc = NativeLib.unity_dlp_init(paths.PythonHome, paths.PackagesPath);
-                if (rc != NativeLib.OK)
+                // Enqueue init on the dedicated Python thread and return immediately —
+                // never block the caller (DlpBootstrap can reach here on the main thread
+                // when assets are already unpacked, and init is slow: importing yt-dlp +
+                // bringing up V8). The worker is FIFO, so any extract enqueued afterwards
+                // runs after init completes. On failure, reset the flag and log; the
+                // error then surfaces on the next extract as ERR_INIT.
+                _work.Add(() =>
                 {
-                    var errMsg = ReadLastError();
-                    Interlocked.Exchange(ref _initialized, 0);
-                    throw new InvalidOperationException(
-                        $"unity_dlp_init failed (code {rc}): {errMsg}");
-                }
+                    var rc = NativeLib.unity_dlp_init(paths.PythonHome, paths.PackagesPath);
+                    if (rc != NativeLib.OK)
+                    {
+                        Interlocked.Exchange(ref _initialized, 0);
+                        Debug.LogError($"[YtDlp] unity_dlp_init failed (code {rc}): {ReadLastError()}");
+                    }
+                });
             }
         }
 
@@ -75,18 +120,25 @@ namespace YtDlp
             return ptr == IntPtr.Zero ? "(unknown)" : Marshal.PtrToStringUTF8(ptr);
         }
 
+        // Init must already be done (await DlpBootstrap.EnsureInitAsync, or call
+        // EnsureInit, first) — extraction can't self-init because resolving the asset
+        // paths needs the main thread and this runs on the Python worker. Both calls
+        // dispatch the native extract onto that single worker thread (see _worker).
         public static Task<VideoInfo> ExtractAsync(
             string url,
             ExtractOptions opts = null,
             CancellationToken cancellationToken = default)
         {
-            return Task.Run(() => Extract(url, opts), cancellationToken);
+            return RunOnWorker(() => ExtractCore(url, opts));
         }
 
         public static VideoInfo Extract(string url, ExtractOptions opts = null)
         {
-            EnsureInit();
+            return RunOnWorker(() => ExtractCore(url, opts)).GetAwaiter().GetResult();
+        }
 
+        private static VideoInfo ExtractCore(string url, ExtractOptions opts)
+        {
             var optsJson = opts is null
                 ? null
                 : JsonConvert.SerializeObject(opts, SerializerSettings);
