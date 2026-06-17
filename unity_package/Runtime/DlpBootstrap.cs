@@ -27,6 +27,13 @@ namespace YtDlp
         // re-extraction on the next launch.
         private const string DlpVersion = "0.1.0";
 
+        /// <summary>
+        /// When true, after init the engine checks PyPI for a newer yt-dlp and stages it for
+        /// the next launch (see <see cref="DlpUpdater"/>). No-op on iOS. Set false before the
+        /// first init call to pin to the bundled package.
+        /// </summary>
+        public static bool AutoUpdate = true;
+
         private static Task _initTask;
         private static readonly object _lock = new object();
 
@@ -49,6 +56,11 @@ namespace YtDlp
             var paths = await PrepareAsync().ConfigureAwait(false);
             Debug.Log($"[YtDlp] pythonHome={paths.PythonHome} packagesPath={paths.PackagesPath}");
             YtDlpApi.EnsureInit(paths);
+
+            // Fire-and-forget: stage a newer yt-dlp for the next launch. Never throws and
+            // never touches the interpreter that just booted (re-init is unsafe).
+            if (AutoUpdate)
+                _ = DlpUpdater.CheckAndStageAsync(DlpVersion, DlpUpdater.ReadPackagesVersion(paths.PackagesPath));
         }
 
         /// <summary>
@@ -88,7 +100,7 @@ namespace YtDlp
 
             return new DlpPaths(
                 pythonHome:   Path.Combine(baseDir, "python"),
-                packagesPath: Path.Combine(baseDir, "yt_dlp.zip"));
+                packagesPath: DlpUpdater.ResolvePackagesPath(baseDir, DlpVersion));
         }
 
         private static async Task ExtractStdlibAsync(string srcDlpDir, string baseDir)
