@@ -5,15 +5,17 @@ namespace YtDlp
 {
     public sealed class VideoInfo
     {
-        [JsonProperty("id")]          public string Id { get; set; }
-        [JsonProperty("title")]       public string Title { get; set; }
-        [JsonProperty("webpage_url")] public string WebpageUrl { get; set; }
-        [JsonProperty("duration")]    public double? Duration { get; set; }
-        [JsonProperty("thumbnail")]   public string Thumbnail { get; set; }
-        [JsonProperty("uploader")]    public string Uploader { get; set; }
-        [JsonProperty("description")] public string Description { get; set; }
-        [JsonProperty("formats")]     public List<Format> Formats { get; set; }
-        [JsonProperty("url")]         public string DirectUrl { get; set; }
+        [JsonProperty("id")]                 public string Id { get; set; }
+        [JsonProperty("title")]              public string Title { get; set; }
+        [JsonProperty("webpage_url")]        public string WebpageUrl { get; set; }
+        [JsonProperty("duration")]           public double? Duration { get; set; }
+        [JsonProperty("thumbnail")]          public string Thumbnail { get; set; }
+        [JsonProperty("uploader")]           public string Uploader { get; set; }
+        [JsonProperty("description")]        public string Description { get; set; }
+        [JsonProperty("subtitles")]          public Dictionary<string, List<SubtitleTrack>> Subtitles { get; set; }
+        [JsonProperty("automatic_captions")] public Dictionary<string, List<SubtitleTrack>> AutomaticCaptions { get; set; }
+        [JsonProperty("formats")]            public List<Format> Formats { get; set; }
+        [JsonProperty("url")]                public string DirectUrl { get; set; }
     }
 
     public sealed class Format
@@ -31,6 +33,13 @@ namespace YtDlp
         [JsonProperty("filesize")]       public long? FileSize { get; set; }
         [JsonProperty("filesize_approx")]public long? FileSizeApprox { get; set; }
         [JsonProperty("protocol")]       public string Protocol { get; set; }
+    }
+
+    public sealed class SubtitleTrack
+    {
+        [JsonProperty("url")]  public string Url { get; set; }
+        [JsonProperty("ext")]  public string Ext { get; set; }
+        [JsonProperty("name")] public string Name { get; set; }
     }
 
     public sealed class ExtractOptions
