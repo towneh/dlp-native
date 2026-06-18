@@ -88,6 +88,20 @@ Unity C# (DlpBootstrap.cs + YtDlp.cs)
                                        └── js-quickjs: rquickjs → QuickJS  (Linux, Android, iOS)
 ```
 
+## Keeping yt-dlp current
+
+yt-dlp ages fastest — YouTube changes its player JS and formats often, while the embedded CPython and the native ABI rarely move. So the bundled yt-dlp can refresh itself at runtime rather than waiting for a plugin rebuild.
+
+After init, `DlpBootstrap` checks PyPI for a newer yt-dlp (`DlpUpdater`, fire-and-forget, on by default via `DlpBootstrap.AutoUpdate`). A newer release is downloaded, sha256-verified against the PyPI digest, checked for compatibility with the embedded interpreter's Python version, and staged for the next launch — the running interpreter keeps the package it booted with, since re-init isn't safe. On the next launch the staged copy is used in place of the bundled zip; anything wrong with it (missing, hash mismatch, version-incompatible) falls back to the bundled zip, and the check never throws.
+
+What this does not cover:
+
+- The Python stdlib is tied to the embedded interpreter and only changes on a plugin rebuild.
+- Compiled extensions (e.g. `curl_cffi`) can't ship as a zip and stay with the build.
+- iOS is pinned to the bundled package — the App Store forbids downloading and running new code at runtime, so it refreshes via an app update.
+
+Set `DlpBootstrap.AutoUpdate = false` before the first init call to pin to the bundled package.
+
 ## Scope
 
 Metadata / URL resolution only. No download API. The plugin resolves stream URLs; actual downloading is left to the caller (Unity's `UnityWebRequest`, FFmpeg, etc.).
