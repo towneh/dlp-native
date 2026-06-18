@@ -15,10 +15,10 @@ namespace YtDlp
         [JsonProperty("language")]           public string Language { get; set; }
         [JsonProperty("is_live")]            public bool? IsLive { get; set; }
         [JsonProperty("live_status")]        public string LiveStatus { get; set; }
-        [JsonProperty("chapters")]           public List<Chapter> Chapters { get; set; }
-        [JsonProperty("subtitles")]          public Dictionary<string, List<SubtitleTrack>> Subtitles { get; set; }
-        [JsonProperty("automatic_captions")] public Dictionary<string, List<SubtitleTrack>> AutomaticCaptions { get; set; }
-        [JsonProperty("formats")]            public List<Format> Formats { get; set; }
+        [JsonProperty("chapters")]           public List<Chapter> Chapters { get; set; } = new List<Chapter>();
+        [JsonProperty("subtitles")]          public Dictionary<string, List<SubtitleTrack>> Subtitles { get; set; } = new Dictionary<string, List<SubtitleTrack>>();
+        [JsonProperty("automatic_captions")] public Dictionary<string, List<SubtitleTrack>> AutomaticCaptions { get; set; } = new Dictionary<string, List<SubtitleTrack>>();
+        [JsonProperty("formats")]            public List<Format> Formats { get; set; } = new List<Format>();
         [JsonProperty("url")]                public string DirectUrl { get; set; }
     }
 
