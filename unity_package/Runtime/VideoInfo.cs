@@ -12,6 +12,8 @@ namespace YtDlp
         [JsonProperty("thumbnail")]          public string Thumbnail { get; set; }
         [JsonProperty("uploader")]           public string Uploader { get; set; }
         [JsonProperty("description")]        public string Description { get; set; }
+        [JsonProperty("is_live")]            public bool? IsLive { get; set; }
+        [JsonProperty("live_status")]        public string LiveStatus { get; set; }
         [JsonProperty("subtitles")]          public Dictionary<string, List<SubtitleTrack>> Subtitles { get; set; }
         [JsonProperty("automatic_captions")] public Dictionary<string, List<SubtitleTrack>> AutomaticCaptions { get; set; }
         [JsonProperty("formats")]            public List<Format> Formats { get; set; }
