@@ -235,8 +235,10 @@ namespace YtDlp
             catch { return null; }
         }
 
+        // DlpBootstrap.PersistentDataPath is captured on the main thread; this runs from
+        // thread-pool continuations where Application.persistentDataPath would throw.
         private static string UpdatesRoot()
-            => Path.Combine(Application.persistentDataPath, "dlp", UpdatesDir);
+            => Path.Combine(DlpBootstrap.PersistentDataPath, "dlp", UpdatesDir);
 
         private static string Sha256Hex(byte[] bytes)
         {

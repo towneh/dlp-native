@@ -34,6 +34,11 @@ namespace YtDlp
         /// </summary>
         public static bool AutoUpdate = true;
 
+        // Application.persistentDataPath is main-thread-only, but extraction and the
+        // fire-and-forget update check run their continuations on the thread pool. Capture
+        // it once at the (main-thread) entry points and read the cache off-thread.
+        internal static string PersistentDataPath { get; private set; }
+
         private static Task _initTask;
         private static readonly object _lock = new object();
 
@@ -46,7 +51,10 @@ namespace YtDlp
             lock (_lock)
             {
                 if (_initTask == null)
+                {
+                    PersistentDataPath = Application.persistentDataPath;
                     _initTask = RunInitAsync();
+                }
                 return _initTask;
             }
         }
@@ -69,6 +77,8 @@ namespace YtDlp
         /// </summary>
         public static async Task<DlpPaths> PrepareAsync()
         {
+            // Runs synchronously on the caller's (main) thread up to the first await.
+            PersistentDataPath = Application.persistentDataPath;
 #if UNITY_EDITOR
             // PackageInfo.FindForAssembly must run on the main thread.
             // Resolve it synchronously here, before any await, while we are
@@ -88,7 +98,7 @@ namespace YtDlp
         // Shared extraction path used by both editor and runtime.
         private static async Task<DlpPaths> PrepareFromDirAsync(string srcDlpDir)
         {
-            var baseDir    = Path.Combine(Application.persistentDataPath, "dlp", DlpVersion);
+            var baseDir    = Path.Combine(PersistentDataPath, "dlp", DlpVersion);
             var markerPath = Path.Combine(baseDir, ".ready");
 
             if (!File.Exists(markerPath))
