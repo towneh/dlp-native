@@ -43,7 +43,7 @@ jobs:
           & $python scripts/stage_stdlib.py windows-x86_64 --python $python
 
       - name: CLI smoke test
-        run: cargo run -p unity_dlp_cli --release -- version
+        run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -95,7 +95,7 @@ jobs:
           "$PYO3_PYTHON" scripts/stage_stdlib.py macos-universal --python "$PYO3_PYTHON"
 
       - name: CLI smoke test
-        run: cargo run -p unity_dlp_cli --release -- version
+        run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -138,7 +138,7 @@ jobs:
           "$PYTHON" scripts/stage_stdlib.py linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test
-        run: cargo run -p unity_dlp_cli --release --no-default-features --features js-quickjs -- version
+        run: cargo run -p unity_dlp_cli --profile release-with-debuginfo --no-default-features --features js-quickjs -- version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -218,7 +218,7 @@ jobs:
           cargo ndk \
             --target aarch64-linux-android \
             --platform 26 \
-            -- build -p unity_dlp_core --release \
+            -- build -p unity_dlp_core --profile release-with-debuginfo \
             --no-default-features --features js-quickjs
 
       - name: Stage Python stdlib
@@ -228,7 +228,7 @@ jobs:
       - name: Stage artifact
         run: |
           mkdir -p unity_package/Plugins/Android/libs/arm64-v8a
-          cp target/aarch64-linux-android/release/libunity_dlp.so \
+          cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so \
             unity_package/Plugins/Android/libs/arm64-v8a/
           LIBPY="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libpython3.*.so*' \
             | sort -V | tail -1)"
@@ -305,14 +305,14 @@ jobs:
         run: |
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_DEVICE_LIB" \
-            cargo build -p unity_dlp_core --release --target aarch64-apple-ios \
+            cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios \
             --no-default-features --features js-quickjs
 
       - name: Build iOS simulator (arm64)
         run: |
           export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_SIM_LIB" \
-            cargo build -p unity_dlp_core --release --target aarch64-apple-ios-sim \
+            cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios-sim \
             --no-default-features --features js-quickjs
 
       - name: Stage Python stdlib
@@ -329,8 +329,8 @@ jobs:
           mkdir -p unity_package/Plugins/iOS
           rm -rf unity_package/Plugins/iOS/unity_dlp.xcframework
           xcodebuild -create-xcframework \
-            -library target/aarch64-apple-ios/release/libunity_dlp.a \
-            -library target/aarch64-apple-ios-sim/release/libunity_dlp.a \
+            -library target/aarch64-apple-ios/release-with-debuginfo/libunity_dlp.a \
+            -library target/aarch64-apple-ios-sim/release-with-debuginfo/libunity_dlp.a \
             -output unity_package/Plugins/iOS/unity_dlp.xcframework
 
       - name: Upload artifact

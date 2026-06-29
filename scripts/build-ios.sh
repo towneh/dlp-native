@@ -40,14 +40,14 @@ export CFLAGS="-I$DEVICE_FW/Headers"
 echo "==> Building iOS device (arm64)..."
 export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
 PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$(pwd)/python-ios-device-lib" \
-  cargo build -p unity_dlp_core --release --target "$DEVICE" \
+  cargo build -p unity_dlp_core --profile release-with-debuginfo --target "$DEVICE" \
   --no-default-features --features js-quickjs
 
 # ── Build simulator (arm64) ───────────────────────────────────────────────────
 echo "==> Building iOS simulator (arm64)..."
 export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$(pwd)/python-ios-sim-lib" \
-  cargo build -p unity_dlp_core --release --target "$SIM" \
+  cargo build -p unity_dlp_core --profile release-with-debuginfo --target "$SIM" \
   --no-default-features --features js-quickjs
 
 # ── Package xcframework ───────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ DEST="unity_package/Plugins/iOS"
 mkdir -p "$DEST"
 rm -rf "$DEST/unity_dlp.xcframework"
 xcodebuild -create-xcframework \
-  -library "target/$DEVICE/release/libunity_dlp.a" \
-  -library "target/$SIM/release/libunity_dlp.a" \
+  -library "target/$DEVICE/release-with-debuginfo/libunity_dlp.a" \
+  -library "target/$SIM/release-with-debuginfo/libunity_dlp.a" \
   -output "$DEST/unity_dlp.xcframework"
 echo "==> xcframework staged to $DEST/unity_dlp.xcframework"

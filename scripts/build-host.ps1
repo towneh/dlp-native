@@ -4,9 +4,13 @@
 # unity_package/Plugins/x86_64/.
 #
 # Usage:
-#   pwsh scripts/build-host.ps1          # release build
-#   pwsh scripts/build-host.ps1 -Debug   # debug build
-param([switch]$Debug)
+#   pwsh scripts/build-host.ps1           # release-with-debuginfo (default)
+#   pwsh scripts/build-host.ps1 -Debug    # debug build
+#   pwsh scripts/build-host.ps1 -Release  # plain release (no debug symbols)
+param(
+    [switch]$Debug,
+    [switch]$Release
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -27,9 +31,16 @@ Write-Host "    Prefix : $PyPrefix"
 $env:PYO3_PYTHON = $PyExe
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-$Profile = if ($Debug) { 'debug' } else { 'release' }
 $CargoArgs = @('-p', 'unity_dlp_core')
-if (-not $Debug) { $CargoArgs += '--release' }
+if ($Debug) {
+    $Profile = 'debug'
+} elseif ($Release) {
+    $Profile = 'release'
+    $CargoArgs += '--release'
+} else {
+    $Profile = 'release-with-debuginfo'
+    $CargoArgs += '--profile', 'release-with-debuginfo'
+}
 
 Write-Host "==> cargo build $($CargoArgs -join ' ')..."
 cargo build @CargoArgs
