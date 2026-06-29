@@ -22,19 +22,19 @@ echo "==> Building Android arm64-v8a..."
 cargo ndk \
   --target aarch64-linux-android \
   --platform 26 \
-  -- build -p unity_dlp_core --release --no-default-features --features js-quickjs
+  -- build -p unity_dlp_core --profile release-with-debuginfo --no-default-features --features js-quickjs
 
 echo "==> Building Android armeabi-v7a..."
 cargo ndk \
   --target armv7-linux-androideabi \
   --platform 26 \
-  -- build -p unity_dlp_core --release --no-default-features --features js-quickjs
+  -- build -p unity_dlp_core --profile release-with-debuginfo --no-default-features --features js-quickjs
 
 echo "==> Staging .so files..."
 ARM64_DEST="unity_package/Plugins/Android/libs/arm64-v8a"
 ARMV7_DEST="unity_package/Plugins/Android/libs/armeabi-v7a"
 mkdir -p "$ARM64_DEST" "$ARMV7_DEST"
 
-cp target/aarch64-linux-android/release/libunity_dlp.so "$ARM64_DEST/"
-cp target/armv7-linux-androideabi/release/libunity_dlp.so "$ARMV7_DEST/"
+cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so "$ARM64_DEST/"
+cp target/armv7-linux-androideabi/release-with-debuginfo/libunity_dlp.so "$ARMV7_DEST/"
 echo "==> Android .so files staged."
