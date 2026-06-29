@@ -311,6 +311,7 @@ jobs:
       - name: Build iOS simulator (arm64)
         run: |
           export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT" \
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_SIM_LIB" \
             cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios-sim \
             --no-default-features --features js-quickjs

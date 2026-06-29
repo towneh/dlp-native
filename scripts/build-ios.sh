@@ -46,6 +46,7 @@ PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$(pwd)/python-ios-device-lib" \
 # ── Build simulator (arm64) ───────────────────────────────────────────────────
 echo "==> Building iOS simulator (arm64)..."
 export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT" \
 PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$(pwd)/python-ios-sim-lib" \
   cargo build -p unity_dlp_core --profile release-with-debuginfo --target "$SIM" \
   --no-default-features --features js-quickjs
