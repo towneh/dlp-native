@@ -12,6 +12,7 @@ namespace YtDlp.Editor
         private const string VimeoUrl      = "https://vimeo.com/76979871";
         private const string SoundCloudUrl = "https://soundcloud.com/forss/flickermood";
         private const string YouTubeUrl    = "https://www.youtube.com/watch?v=2n_Ae9DGC0U";
+        private const string YouTubeListUrl = "https://www.youtube.com/watch?v=wJUXLqNHCaI&list=PLFs4vir_WsTySi9F8v5pvCi6zQj7Cwneu";
 
         static YtDlpSmokeTest()
         {
@@ -50,6 +51,9 @@ namespace YtDlp.Editor
 
         [MenuItem("Tools/YtDlp/4 – Extract YouTube (Phase 2)")]
         public static void RunYouTubeExtract() => RunExtract(YouTubeUrl);
+
+        [MenuItem("Tools/YtDlp/5 - Extract YouTube List URL (May not safe for your IP reputation; It will timeout)")]
+        public static void RunYouTubeListExtract() => RunExtract(YouTubeListUrl);
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
