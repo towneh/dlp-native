@@ -5,7 +5,7 @@ Update both the submodule commit and this file when bumping.
 
 | Submodule | Tag / Commit | Pinned date |
 |-----------|-------------|-------------|
-| `vendor/yt-dlp` | `2026.03.17` | 2026-05-14 |
+| `vendor/yt-dlp` | `2026.07.04` | 2026-07-05 |
 | `vendor/yt-dlp-ejs` | `0.8.0` | 2026-05-14 |
 
 ## Bumping yt-dlp

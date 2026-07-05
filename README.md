@@ -82,7 +82,7 @@ Unity C# (DlpBootstrap.cs + YtDlp.cs)
     └── P/Invoke → unity_dlp.{dll,dylib,so} / libunity_dlp.a
                        └── Rust (unity_dlp_core)
                                ├── PyO3 → CPython 3.12 (interpreter only)
-                               │             └── yt-dlp + unity_dlp_jsc (loaded from filesystem)
+                               │             └── yt-dlp + yt_dlp_ejs + unity_dlp_jsc (loaded from filesystem)
                                └── JS engine (feature-selected at build time)
                                        ├── js-v8: rustyscript → V8  (Windows, macOS)
                                        └── js-quickjs: rquickjs → QuickJS  (Linux, Android, iOS)
@@ -92,7 +92,9 @@ Unity C# (DlpBootstrap.cs + YtDlp.cs)
 
 yt-dlp ages fastest — YouTube changes its player JS and formats often, while the embedded CPython and the native ABI rarely move. So the bundled yt-dlp can refresh itself at runtime rather than waiting for a plugin rebuild.
 
-After init, `DlpBootstrap` checks PyPI for a newer yt-dlp (`DlpUpdater`, fire-and-forget, on by default via `DlpBootstrap.AutoUpdate`). A newer release is downloaded, sha256-verified against the PyPI digest, checked for compatibility with the embedded interpreter's Python version, and staged for the next launch — the running interpreter keeps the package it booted with, since re-init isn't safe. On the next launch the staged copy is used in place of the bundled zip; anything wrong with it (missing, hash mismatch, version-incompatible) falls back to the bundled zip, and the check never throws.
+After init, `DlpBootstrap` checks PyPI for a newer yt-dlp (`DlpUpdater`, fire-and-forget, on by default via `DlpBootstrap.AutoUpdate`). A newer release is downloaded, sha256-verified against the PyPI digest, and checked for compatibility with the embedded interpreter's Python version and the bundled `yt-dlp-ejs` before being staged for the next launch — the running interpreter keeps the package it booted with, since re-init isn't safe.
+
+On the next launch the staged wheel and the bundled zip are both placed on `sys.path`, staged wheel first: `yt_dlp` resolves from the update, while `yt_dlp_ejs` and the `unity_dlp_jsc` shim — neither of which a PyPI wheel carries — resolve from the bundle behind it. Anything wrong with the staged wheel (missing, hash mismatch, incompatible Python/ejs version, or not a yt-dlp wheel) falls back to the bundle alone, and the check never throws.
 
 What this does not cover:
 
