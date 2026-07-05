@@ -10,6 +10,7 @@ documentation_style = "c99"
 include = [
     "UnityDlpResult",
     "UNITY_DLP_OK",
+    "UNITY_DLP_OK_DEGRADED",
     "UNITY_DLP_ERR_INIT",
     "UNITY_DLP_ERR_PYTHON",
     "UNITY_DLP_ERR_JS",

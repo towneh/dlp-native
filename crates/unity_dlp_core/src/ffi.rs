@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use once_cell::sync::OnceCell;
 
@@ -25,6 +25,10 @@ fn set_last_error(msg: impl Into<String>) {
 pub type UnityDlpResult = i32;
 
 pub const UNITY_DLP_OK: UnityDlpResult = 0;
+/// Init succeeded but the yt-dlp JCP shim (`unity_dlp_jsc`) did not register.
+/// The interpreter is up and extraction works, but the YouTube JS-challenge path
+/// is unavailable. `unity_dlp_last_error` holds the import error.
+pub const UNITY_DLP_OK_DEGRADED: UnityDlpResult = 1;
 pub const UNITY_DLP_ERR_INIT: UnityDlpResult = -1;
 pub const UNITY_DLP_ERR_PYTHON: UnityDlpResult = -2;
 pub const UNITY_DLP_ERR_JS: UnityDlpResult = -3;
@@ -35,17 +39,25 @@ pub const UNITY_DLP_ERR_BUF: UnityDlpResult = -5;
 // ── Init / shutdown ───────────────────────────────────────────────────────────
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+// The result code the first successful init returned (UNITY_DLP_OK or
+// UNITY_DLP_OK_DEGRADED). Later no-op calls echo it so every caller sees the
+// same verdict rather than an unconditional OK.
+static INIT_CODE: AtomicI32 = AtomicI32::new(UNITY_DLP_OK);
 
 /// Initialise the native library.
 ///
 /// `python_home_utf8`   — NUL-terminated path to the unpacked Python prefix
 ///                        (sets PYTHONHOME). Nullable; null or empty skips it.
-/// `packages_path_utf8` — NUL-terminated path added to sys.path (a .zip or a
-///                        directory). Nullable; null or empty skips it.
+/// `packages_path_utf8` — NUL-terminated `\n`-delimited list of paths added to
+///                        sys.path (each a .zip or a directory); earlier entries
+///                        win resolution. Newlines separate because `;`/`:` are
+///                        legal path characters. Nullable; null or empty skips it.
 ///
-/// Must succeed before calling any other function. Safe to call from multiple
-/// threads — only the first call runs initialisation; subsequent calls are
-/// no-ops that return UNITY_DLP_OK.
+/// Must succeed before calling any other function. Returns UNITY_DLP_OK on a
+/// clean init or UNITY_DLP_OK_DEGRADED when the interpreter came up but the JCP
+/// shim did not register (see that constant). Safe to call from multiple threads
+/// — only the first call runs initialisation; subsequent calls echo the first
+/// call's result code.
 #[no_mangle]
 pub extern "C" fn unity_dlp_init(
     python_home_utf8: *const c_char,
@@ -55,7 +67,7 @@ pub extern "C" fn unity_dlp_init(
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return UNITY_DLP_OK;
+        return INIT_CODE.load(Ordering::SeqCst);
     }
 
     logging::init();
@@ -86,15 +98,27 @@ pub extern "C" fn unity_dlp_init(
         }
     };
 
-    if let Err(e) = python_host::init(python_home, packages_path) {
-        log::error!("unity_dlp_init: Python init failed: {e}");
-        set_last_error(e);
-        INITIALIZED.store(false, Ordering::SeqCst);
-        return UNITY_DLP_ERR_INIT;
+    match python_host::init(python_home, packages_path) {
+        Ok(None) => {
+            log::info!("unity_dlp_init: library initialised");
+            INIT_CODE.store(UNITY_DLP_OK, Ordering::SeqCst);
+            UNITY_DLP_OK
+        }
+        Ok(Some(shim_error)) => {
+            // Interpreter is up; only the JCP shim failed. Extraction works, so
+            // stay initialised and surface the reason via last_error.
+            log::error!("unity_dlp_init: JCP shim degraded: {shim_error}");
+            set_last_error(shim_error);
+            INIT_CODE.store(UNITY_DLP_OK_DEGRADED, Ordering::SeqCst);
+            UNITY_DLP_OK_DEGRADED
+        }
+        Err(e) => {
+            log::error!("unity_dlp_init: Python init failed: {e}");
+            set_last_error(e);
+            INITIALIZED.store(false, Ordering::SeqCst);
+            UNITY_DLP_ERR_INIT
+        }
     }
-
-    log::info!("unity_dlp_init: library initialised");
-    UNITY_DLP_OK
 }
 
 /// Shut down the native library and release resources.

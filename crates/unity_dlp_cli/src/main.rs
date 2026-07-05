@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use unity_dlp::{
     unity_dlp_extract, unity_dlp_init, unity_dlp_last_error, unity_dlp_version,
-    UNITY_DLP_ERR_BUF, UNITY_DLP_OK,
+    UNITY_DLP_ERR_BUF, UNITY_DLP_OK, UNITY_DLP_OK_DEGRADED,
 };
 
 fn main() {
@@ -27,16 +27,23 @@ fn main() {
             };
 
             // DLP_PYTHON_HOME / DLP_PACKAGES_PATH let callers point the CLI at a
-            // local Python prefix and yt_dlp.zip without rebuilding.
+            // local Python prefix and packages without rebuilding. DLP_PACKAGES_PATH
+            // is a `\n`-delimited list (each entry a .zip or a directory); earlier
+            // entries win sys.path resolution — e.g. a staged yt-dlp wheel followed
+            // by the bundled zip that carries yt_dlp_ejs and unity_dlp_jsc.
             let python_home = std::env::var("DLP_PYTHON_HOME").unwrap_or_default();
             let packages_path = std::env::var("DLP_PACKAGES_PATH").unwrap_or_default();
             let home_c = CString::new(python_home).expect("DLP_PYTHON_HOME contains NUL");
             let pkgs_c = CString::new(packages_path).expect("DLP_PACKAGES_PATH contains NUL");
 
             let rc = unity_dlp_init(home_c.as_ptr(), pkgs_c.as_ptr());
-            if rc != UNITY_DLP_OK {
+            if rc != UNITY_DLP_OK && rc != UNITY_DLP_OK_DEGRADED {
                 eprintln!("init failed: {rc}");
                 std::process::exit(1);
+            }
+            if rc == UNITY_DLP_OK_DEGRADED {
+                eprintln!("warning: init degraded — unity_dlp_jsc shim not registered; \
+                           YouTube JS-challenge path unavailable");
             }
 
             let url_c = CString::new(url.as_str()).expect("url contains NUL byte");
