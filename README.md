@@ -12,7 +12,21 @@ YouTube's JS signature challenges are solved via an in-process JS engine: V8 (vi
 
 ## Getting started
 
-The easiest way to get the plugin files is to download the latest CI artifacts — no Rust or Python toolchain required. You'll need the [GitHub CLI](https://cli.github.com/) authenticated to this repo (`gh auth login`).
+The easiest way to get the plugin files — no Rust or Python toolchain, no GitHub auth — is to grab a release. The latest is [**v0.2.1**](https://github.com/towneh/dlp-native/releases/tag/v0.2.1) (browse [all releases](https://github.com/towneh/dlp-native/releases)). Download the zip for your platform and extract its `Plugins/` and `StreamingAssets/` into `unity_package/`:
+
+| Asset | Platform |
+|-------|----------|
+| `unity_dlp-windows-x64.zip` | Windows x86_64 |
+| `unity_dlp-macos-universal.zip` | macOS arm64 + x86_64 |
+| `unity_dlp-linux-x64.zip` | Linux x86_64 |
+| `unity_dlp-android-arm64.zip` | Android arm64-v8a |
+| `unity_dlp-ios-arm64.zip` | iOS arm64 |
+
+Each asset carries that platform's native binary and the Python bundle; the C# scripts come with the package source itself.
+
+### Latest CI build
+
+To pull a build newer than the last release, fetch the latest CI artifacts instead. This needs the [GitHub CLI](https://cli.github.com/) authenticated to this repo (`gh auth login`):
 
 **Windows:**
 ```powershell
