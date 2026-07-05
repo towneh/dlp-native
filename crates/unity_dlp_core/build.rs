@@ -70,24 +70,28 @@ fn bundle_zip(workspace_root: &PathBuf) {
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Stored);
 
+    // A bundle missing any of the three packages produces an interpreter that
+    // aborts (or degrades) at init, so an absent source is a build failure, not a
+    // warning that ships a broken artifact.
+
     // ── yt_dlp ────────────────────────────────────────────────────────────────
     let yt_dlp_dir = workspace_root.join("vendor/yt-dlp/yt_dlp");
-    if yt_dlp_dir.exists() {
-        add_python_package(&mut zip, &yt_dlp_dir, "yt_dlp", opts);
-    } else {
-        eprintln!("cargo:warning=vendor/yt-dlp/yt_dlp not found — embedding empty yt_dlp");
-    }
+    assert!(
+        yt_dlp_dir.exists(),
+        "vendor/yt-dlp/yt_dlp not found — run `git submodule update --init` before building"
+    );
+    add_python_package(&mut zip, &yt_dlp_dir, "yt_dlp", opts);
 
     // ── yt_dlp_ejs ────────────────────────────────────────────────────────────
     add_yt_dlp_ejs(&mut zip, workspace_root, opts);
 
     // ── unity_dlp_jsc ─────────────────────────────────────────────────────────
     let jsc_dir = workspace_root.join("python/unity_dlp_jsc/unity_dlp_jsc");
-    if jsc_dir.exists() {
-        add_python_package(&mut zip, &jsc_dir, "unity_dlp_jsc", opts);
-    } else {
-        eprintln!("cargo:warning=python/unity_dlp_jsc not found — YouTube JCP shim missing");
-    }
+    assert!(
+        jsc_dir.exists(),
+        "python/unity_dlp_jsc not found — the YouTube JCP shim is required in the bundle"
+    );
+    add_python_package(&mut zip, &jsc_dir, "unity_dlp_jsc", opts);
 
     zip.finish().expect("finalise yt_dlp.zip");
     println!("cargo:warning=yt_dlp.zip staged to {}", zip_path.display());
@@ -130,10 +134,10 @@ fn add_yt_dlp_ejs(
     opts: zip::write::SimpleFileOptions,
 ) {
     let ejs_dir = workspace_root.join("vendor/yt-dlp-ejs");
-    if !ejs_dir.exists() {
-        eprintln!("cargo:warning=vendor/yt-dlp-ejs not found — YouTube extraction will use built-in vendored scripts");
-        return;
-    }
+    assert!(
+        ejs_dir.exists(),
+        "vendor/yt-dlp-ejs not found — run `git submodule update --init` before building"
+    );
 
     // Python sources
     add_python_package(zip, &ejs_dir.join("yt_dlp_ejs"), "yt_dlp_ejs", opts);

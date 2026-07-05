@@ -24,8 +24,10 @@ namespace YtDlp
     public static class DlpBootstrap
     {
         // Bump when the stdlib bundle or yt-dlp version changes to force
-        // re-extraction on the next launch.
-        private const string DlpVersion = "0.1.0";
+        // re-extraction on the next launch. A bump also invalidates any staged
+        // update pointer (its forDlpVersion no longer matches), so a field install
+        // broken by an older staging scheme recovers on the first launch after update.
+        private const string DlpVersion = "0.2.0";
 
         /// <summary>
         /// When true, after init the engine checks PyPI for a newer yt-dlp and stages it for
