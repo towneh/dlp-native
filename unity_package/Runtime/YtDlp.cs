@@ -91,15 +91,34 @@ namespace YtDlp
                 // never block the caller (DlpBootstrap can reach here on the main thread
                 // when assets are already unpacked, and init is slow: importing yt-dlp +
                 // bringing up V8). The worker is FIFO, so any extract enqueued afterwards
-                // runs after init completes. On failure, reset the flag and log; the
-                // error then surfaces on the next extract as ERR_INIT.
+                // runs after init completes.
                 _work.Add(() =>
                 {
                     var rc = NativeLib.unity_dlp_init(paths.PythonHome, paths.PackagesPath);
-                    if (rc != NativeLib.OK)
+                    // A staged wheel is active when the resolved packages list has more than
+                    // one entry (staged wheel + bundle); quarantine it on either failure shape
+                    // so the next boot runs the matched bundled pair.
+                    var stagedActive = paths.PackagesPath.IndexOf(DlpUpdater.PathListSeparator) >= 0;
+
+                    if (rc == NativeLib.OK_DEGRADED)
                     {
+                        // Interpreter is up and extraction works; only the JCP shim failed.
+                        // Stay initialised. The shim always resolves from the bundle, so a
+                        // failure under a staged wheel points at API skew — quarantine it.
+                        Debug.LogError("[YtDlp] init degraded: the unity_dlp_jsc shim did not register — " +
+                                       $"YouTube JS-challenge extraction is unavailable. {ReadLastError()}");
+                        if (stagedActive)
+                            DlpUpdater.QuarantineStagedUpdate("shim import failed under a staged update");
+                    }
+                    else if (rc != NativeLib.OK)
+                    {
+                        // Hard failure. Reset the flag so the error surfaces on the next
+                        // extract as ERR_INIT, and quarantine any staged update that was on
+                        // the path so the next launch boots pure-bundle.
                         Interlocked.Exchange(ref _initialized, 0);
                         Debug.LogError($"[YtDlp] unity_dlp_init failed (code {rc}): {ReadLastError()}");
+                        if (stagedActive)
+                            DlpUpdater.QuarantineStagedUpdate("init failed under a staged update");
                     }
                 });
             }

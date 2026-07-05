@@ -11,12 +11,16 @@ namespace YtDlp.Native
     /// </summary>
     internal static class NativeLib
     {
-        public const int OK       =  0;
-        public const int ERR_INIT = -1;
-        public const int ERR_PY   = -2;
-        public const int ERR_JS   = -3;
-        public const int ERR_NET  = -4;
-        public const int ERR_BUF  = -5;
+        public const int OK          =  0;
+        // Interpreter is up and extraction works, but the unity_dlp_jsc shim did
+        // not register — the YouTube JS-challenge path is unavailable. Treat as
+        // initialised; unity_dlp_last_error carries the import error.
+        public const int OK_DEGRADED =  1;
+        public const int ERR_INIT    = -1;
+        public const int ERR_PY      = -2;
+        public const int ERR_JS      = -3;
+        public const int ERR_NET     = -4;
+        public const int ERR_BUF     = -5;
 
 #if UNITY_IOS && !UNITY_EDITOR
         private const string LibName = "__Internal";
