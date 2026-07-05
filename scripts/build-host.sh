@@ -32,13 +32,13 @@ case "$(uname -s)" in
     ;;
   *) JS_FEATURES="" ;;
 esac
-cargo build -p unity_dlp_core --release $JS_FEATURES
+cargo build -p unity_dlp_core --profile release-with-debuginfo $JS_FEATURES
 
 # ── Stage to Unity Plugins ────────────────────────────────────────────────────
 case "$(uname -s)" in
-  Linux*)  LIB="target/release/libunity_dlp.so" ;;
-  Darwin*) LIB="target/release/libunity_dlp.dylib" ;;
-  MINGW*|MSYS*|CYGWIN*) LIB="target/release/unity_dlp.dll" ;;
+  Linux*)  LIB="target/release-with-debuginfo/libunity_dlp.so" ;;
+  Darwin*) LIB="target/release-with-debuginfo/libunity_dlp.dylib" ;;
+  MINGW*|MSYS*|CYGWIN*) LIB="target/release-with-debuginfo/unity_dlp.dll" ;;
   *)
     echo "ERROR: Unknown OS '$(uname -s)'" >&2
     exit 1

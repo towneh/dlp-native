@@ -22,5 +22,11 @@ thiserror = "2"
 log = "0.4"
 once_cell = "1"
 
+[profile.release-with-debuginfo]
+inherits = "release"
+debug = true
+split-debuginfo = "packed"
+strip = "debuginfo"
+
 [patch.crates-io]
 deno_ast = { path = "crates/deno_ast_patch" }
