@@ -66,4 +66,4 @@ foreach ($dll in @('python3.dll', 'python312.dll', 'vcruntime140.dll', 'vcruntim
 
 Write-Host ''
 Write-Host 'Build complete. Open the Unity project and run the smoke test via'
-Write-Host 'Tools → YtDlp → Run Smoke Test.'
+Write-Host 'Tools → YtDlp → 1 – Init only.'
