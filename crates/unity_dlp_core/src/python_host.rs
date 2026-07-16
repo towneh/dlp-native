@@ -39,13 +39,51 @@ fn parse_packages_path(packages_path: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Set an environment variable so the embedded CPython actually sees it.
+///
+/// On Windows this is not just `std::env::set_var`. `set_var` calls
+/// `SetEnvironmentVariableW`, which updates the Win32 environment block but *not*
+/// the UCRT's cached wide environment (`_wenviron`). CPython's path configuration
+/// reads `PYTHONHOME` via `_wgetenv`, which serves that CRT cache — and the cache
+/// is materialised lazily on first access, then never re-synced with the Win32
+/// block. In a short-lived process nothing touches the CRT env before this runs,
+/// so the lazy cache picks the value up; but in a long-lived host (e.g. the Unity
+/// Editor) the CRT env was frozen long before, `SetEnvironmentVariableW` lands too
+/// late, `_wgetenv` returns NULL, and `Py_Initialize` fails to find the stdlib —
+/// which aborts the whole host process. So we also push the value through the CRT
+/// (`_wputenv_s`), which updates `_wenviron` (and syncs the Win32 block). Rust and
+/// python3.dll share `ucrtbase.dll` here (no `crt-static`), so this reaches the
+/// same `_wenviron` the interpreter reads.
+fn set_env_for_python(name: &str, value: &str) {
+    // SAFETY: called before Py_Initialize, so no Python threads exist that might
+    // race on getenv/setenv.
+    unsafe { std::env::set_var(name, value) };
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        extern "C" {
+            // ucrtbase: errno_t _wputenv_s(const wchar_t* name, const wchar_t* value);
+            fn _wputenv_s(name: *const u16, value: *const u16) -> i32;
+        }
+        let to_wide = |s: &str| -> Vec<u16> {
+            std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        };
+        let wname = to_wide(name);
+        let wvalue = to_wide(value);
+        // SAFETY: both pointers are NUL-terminated UTF-16 buffers that outlive the
+        // call; _wputenv_s copies them.
+        unsafe { _wputenv_s(wname.as_ptr(), wvalue.as_ptr()) };
+    }
+}
+
 fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
     // Set PYTHONHOME before Py_Initialize so the embedded interpreter can locate
     // its stdlib and C-extension modules (.pyd / .so in the DLLs / lib-dynload dir).
+    // Goes through set_env_for_python, not std::env::set_var directly — see that
+    // function for why the Win32-only path silently fails inside a long-lived host.
     if !python_home.is_empty() {
-        // SAFETY: Python has not been initialised yet, so no Python threads exist
-        // that might race on getenv.
-        unsafe { std::env::set_var("PYTHONHOME", python_home) };
+        set_env_for_python("PYTHONHOME", python_home);
     }
 
     // pyo3::prepare_freethreaded_python calls Py_InitializeEx(0). We do this
