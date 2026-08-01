@@ -192,4 +192,5 @@ Metadata / URL resolution only. No download API. The plugin resolves stream URLs
 
 ## License
 
-MIT
+MIT. Originally written by [yewnyx](https://github.com/yewnyx); this repository is the
+maintained continuation. See [LICENSE](LICENSE).
