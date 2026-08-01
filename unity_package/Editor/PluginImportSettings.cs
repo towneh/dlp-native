@@ -31,7 +31,7 @@ namespace YtDlp.Editor
 
         private static void ConfigureWindowsX64()
         {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/x86_64/unity_dlp.dll";
+            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/unity_dlp.dll";
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
@@ -44,7 +44,7 @@ namespace YtDlp.Editor
 
         private static void ConfigureMacOsUniversal()
         {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/x86_64/unity_dlp.dylib";
+            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/unity_dlp.dylib";
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
@@ -57,7 +57,7 @@ namespace YtDlp.Editor
 
         private static void ConfigureLinuxX64()
         {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/x86_64/unity_dlp.so";
+            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/unity_dlp.so";
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
@@ -70,7 +70,7 @@ namespace YtDlp.Editor
 
         private static void ConfigureIos()
         {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/iOS/libunity_dlp.a";
+            var path = "Packages/town.mr.ytdlp/Plugins/iOS/libunity_dlp.a";
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
@@ -88,7 +88,7 @@ namespace YtDlp.Editor
         // actually is.
         private static void ConfigureAndroidAbi(string abi, string cpu)
         {
-            var dir = $"Packages/com.yewnyx.ytdlp/Plugins/Android/libs/{abi}";
+            var dir = $"Packages/town.mr.ytdlp/Plugins/Android/libs/{abi}";
             var fullDir = Path.GetFullPath(dir);
             if (!Directory.Exists(fullDir)) return;
 
