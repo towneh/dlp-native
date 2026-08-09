@@ -85,7 +85,7 @@ bash scripts/build-android.sh
 bash scripts/build-ios.sh
 ```
 
-Windows, macOS, and Linux scripts require [uv](https://github.com/astral-sh/uv) with Python 3.12 installed (`uv python install 3.12`). iOS uses a static Python framework from [python-apple-support](https://github.com/beeware/python-apple-support) and does not need uv.
+Windows, macOS, and Linux scripts require [uv](https://github.com/astral-sh/uv) with Python 3.14 installed (`uv python install 3.14`). iOS uses a static Python framework from [python-apple-support](https://github.com/beeware/python-apple-support) and does not need uv.
 
 ## Architecture
 
@@ -95,7 +95,7 @@ Unity C# (DlpBootstrap.cs + YtDlp.cs)
     ├── StreamingAssets/dlp/yt_dlp.zip             ─┘ persistentDataPath on first run
     └── P/Invoke → unity_dlp.{dll,dylib,so} / libunity_dlp.a
                        └── Rust (unity_dlp_core)
-                               ├── PyO3 → CPython 3.12 (interpreter only)
+                               ├── PyO3 → CPython 3.14 (interpreter only)
                                │             └── yt-dlp + yt_dlp_ejs + unity_dlp_jsc (loaded from filesystem)
                                └── JS engine (feature-selected at build time)
                                        ├── js-v8: rustyscript → V8  (Windows, macOS)

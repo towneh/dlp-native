@@ -187,14 +187,18 @@ fn run_hatch_build_py(workspace_root: &PathBuf, ejs_dir: &PathBuf) -> bool {
     }
 }
 
-/// Locate the Python interpreter: prefer `PYO3_PYTHON` env var, fall back to
-/// `uv python find 3.12`, then `python3`.
+/// Locate an interpreter to run `hatch_build.py` with: prefer the `PYO3_PYTHON`
+/// env var, fall back to `uv python find --system 3.14+gil`, then `python3`.
+///
+/// This only builds the ejs JS bundles, so any working 3.x will do — it never
+/// becomes the interpreter the extension links against. The request is still
+/// constrained so it matches what the build scripts pick.
 fn find_python(workspace_root: &PathBuf) -> String {
     if let Ok(p) = env::var("PYO3_PYTHON") {
         return p;
     }
     let uv = std::process::Command::new("uv")
-        .args(["python", "find", "3.12"])
+        .args(["python", "find", "--system", "3.14+gil"])
         .current_dir(workspace_root)
         .output();
     if let Ok(o) = uv {

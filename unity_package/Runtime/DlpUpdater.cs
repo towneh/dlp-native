@@ -30,7 +30,7 @@ namespace YtDlp
         // The embedded interpreter's minor version. A candidate yt-dlp whose
         // requires-python excludes this is not installable here, so it's skipped rather
         // than staged into a host that can't run it. Bump alongside the host's CPython.
-        internal const string EmbeddedPython = "3.12";
+        internal const string EmbeddedPython = "3.14";
 
         private const string PyPiJsonUrl = "https://pypi.org/pypi/yt-dlp/json";
         private const string UpdatesDir  = "updates";

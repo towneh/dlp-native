@@ -13,7 +13,7 @@ namespace YtDlp.Editor
     ///
     /// Skips if the zip already exists. Aborts the build if Python cannot
     /// be found or the script fails. Set DLP_PYTHON_HOME to override the
-    /// Python prefix (otherwise uv python find 3.12 is used).
+    /// Python prefix (otherwise uv python find 3.14 is used).
     ///
     /// Android and iOS stdlib zips must be staged by CI — this preprocessor
     /// only handles the three desktop targets automatically.
@@ -48,7 +48,7 @@ namespace YtDlp.Editor
                 if (python == null)
                     throw new BuildFailedException(
                         "[YtDlp] Python 3.x not found. " +
-                        "Set DLP_PYTHON_HOME to your Python prefix, or run: uv python install 3.12");
+                        "Set DLP_PYTHON_HOME to your Python prefix, or run: uv python install 3.14");
 
                 Debug.Log($"[YtDlp] Staging stdlib/{platformId}.zip using {python} …");
                 RunStageScript(python, platformId, stdlibZip);
@@ -154,8 +154,8 @@ namespace YtDlp.Editor
                 }
             }
 
-            // 2. uv python find 3.12
-            var uv = Exec("uv", "python find 3.12");
+            // 2. uv python find 3.14
+            var uv = Exec("uv", "python find 3.14");
             if (!string.IsNullOrEmpty(uv) && File.Exists(uv)) return uv;
 
             return null;

@@ -5,8 +5,8 @@
 #   - cargo-ndk installed  (cargo install cargo-ndk)
 #   - Android NDK (set ANDROID_NDK_HOME)
 #   - PYO3_CROSS_LIB_DIR pointing to a directory containing:
-#       libpython3.12.so  — from Termux's python .deb for the target arch
-#       _sysconfigdata*.py — from $termux_prefix/lib/python3.12/
+#       libpython$PY_VERSION.so  — from Termux's python .deb for the target arch
+#       _sysconfigdata*.py       — from $termux_prefix/lib/python$PY_VERSION/
 #   - libclang-dev installed (for rquickjs-sys bindgen)
 #   - BINDGEN_EXTRA_CLANG_ARGS set to --sysroot=<ndk_sysroot> --target=aarch64-linux-android<api>
 set -euo pipefail
@@ -14,9 +14,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+PY_VERSION="3.14"
+
 : "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME must be set}"
-: "${PYO3_CROSS_LIB_DIR:?PYO3_CROSS_LIB_DIR must point to a dir with libpython3.12.so and _sysconfigdata*.py}"
-export PYO3_CROSS_PYTHON_VERSION="3.12"
+: "${PYO3_CROSS_LIB_DIR:?PYO3_CROSS_LIB_DIR must point to a dir with libpython${PY_VERSION}.so and _sysconfigdata*.py}"
+export PYO3_CROSS_PYTHON_VERSION="$PY_VERSION"
 
 echo "==> Building Android arm64-v8a..."
 cargo ndk \

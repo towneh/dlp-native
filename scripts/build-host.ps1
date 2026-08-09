@@ -18,11 +18,23 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 
-# ── Locate Python 3.12 via uv ─────────────────────────────────────────────────
-Write-Host '==> Locating Python 3.12 via uv...'
-$PyExe = (uv python find 3.12 2>&1).Trim()
-if (-not (Test-Path $PyExe)) {
-    Write-Error "Python 3.12 not found via uv. Run: uv python install 3.12"
+# ── Locate Python via uv ──────────────────────────────────────────────────────
+# Keep in step with PYTHON_VERSION / PYTHON_REQUEST in .github/workflows/build.yml.
+# $PyVersion names files; $PyRequest is the discovery request, where +gil plus
+# --system keeps uv off a free-threaded build and off any active virtualenv.
+$PyVersion = '3.14'
+$PyRequest = "$PyVersion+gil"
+Write-Host "==> Locating Python $PyVersion via uv..."
+# Interpolate rather than `2>&1` or a [string] cast: the former puts an
+# ErrorRecord in the value and the latter yields $null when uv prints nothing,
+# and either way .Trim() throws before the guidance below can print.
+$PyExe = "$(uv python find --system $PyRequest 2>$null)".Trim()
+if (
+    $LASTEXITCODE -ne 0 -or
+    [string]::IsNullOrWhiteSpace($PyExe) -or
+    -not (Test-Path -LiteralPath $PyExe)
+) {
+    Write-Error "Python $PyVersion not found via uv. Run: uv python install $PyVersion"
 }
 $PyPrefix = (& $PyExe -c "import sys; print(sys.prefix, end='')").Trim()
 Write-Host "    Python : $PyExe"
@@ -55,8 +67,9 @@ Copy-Item $DllSrc $Dest -Force
 Write-Host "==> Copied unity_dlp.dll → $Dest"
 
 # Copy the Python runtime DLLs that unity_dlp.dll links against.
-# python3.dll is the stable-ABI forwarder; python312.dll is the full runtime.
-foreach ($dll in @('python3.dll', 'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+# python3.dll is the stable-ABI forwarder; pythonXY.dll is the full runtime.
+$PyDll = "python$($PyVersion -replace '\.', '').dll"
+foreach ($dll in @('python3.dll', $PyDll, 'vcruntime140.dll', 'vcruntime140_1.dll')) {
     $src = Join-Path $PyPrefix $dll
     if (Test-Path $src) {
         Copy-Item $src $Dest -Force
