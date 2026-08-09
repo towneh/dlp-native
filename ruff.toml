@@ -21,8 +21,11 @@ ignore = [
 "python/unity_dlp_jsc/**" = ["ANN001", "ARG001", "BLE001", "EM102", "TRY003"]
 
 # A build script: stdout is its output channel, and it runs against a Python
-# prefix the caller names, not untrusted input.
-"scripts/*.py" = ["ANN", "C901", "PTH", "S603", "T201"]
+# prefix the caller names, not untrusted input. Every script here is stored
+# non-executable and invoked through an interpreter (`python3 scripts/...`,
+# `bash scripts/...`), so the shebang names the interpreter rather than declaring
+# the file directly runnable; EXE001 only fires where the mode bit is visible.
+"scripts/*.py" = ["ANN", "C901", "EXE001", "PTH", "S603", "T201"]
 
 [lint.isort]
 # unity_dlp_js is this project's PyO3 module, injected into sys.modules by
