@@ -19,11 +19,21 @@ $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 
 # ── Locate Python via uv ──────────────────────────────────────────────────────
-# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+# Keep in step with PYTHON_VERSION / PYTHON_REQUEST in .github/workflows/build.yml.
+# $PyVersion names files; $PyRequest is the discovery request, where +gil plus
+# --system keeps uv off a free-threaded build and off any active virtualenv.
 $PyVersion = '3.14'
+$PyRequest = "$PyVersion+gil"
 Write-Host "==> Locating Python $PyVersion via uv..."
-$PyExe = (uv python find $PyVersion 2>&1).Trim()
-if (-not (Test-Path $PyExe)) {
+# Interpolate rather than `2>&1` or a [string] cast: the former puts an
+# ErrorRecord in the value and the latter yields $null when uv prints nothing,
+# and either way .Trim() throws before the guidance below can print.
+$PyExe = "$(uv python find --system $PyRequest 2>$null)".Trim()
+if (
+    $LASTEXITCODE -ne 0 -or
+    [string]::IsNullOrWhiteSpace($PyExe) -or
+    -not (Test-Path -LiteralPath $PyExe)
+) {
     Write-Error "Python $PyVersion not found via uv. Run: uv python install $PyVersion"
 }
 $PyPrefix = (& $PyExe -c "import sys; print(sys.prefix, end='')").Trim()

@@ -23,13 +23,20 @@ IOS_SUPPORT_BUILD="b10"
 export PYO3_CROSS_PYTHON_VERSION="$PY_VERSION"
 
 # ── Fetch python-apple-support if needed ──────────────────────────────────────
+# Keyed on a stamp rather than mere directory existence: a framework left over
+# from an earlier Python would otherwise be copied to libpython$PY_VERSION.a and
+# linked against PYO3_CROSS_PYTHON_VERSION=$PY_VERSION, silently mismatched.
 TARBALL="Python-${PY_VERSION}-iOS-support.${IOS_SUPPORT_BUILD}.tar.gz"
-if [[ ! -d python-ios ]]; then
+EXPECTED_SUPPORT="${PY_VERSION}-${IOS_SUPPORT_BUILD}"
+STAMP="python-ios/.support-version"
+if [[ ! -f "$STAMP" ]] || [[ "$(cat "$STAMP")" != "$EXPECTED_SUPPORT" ]]; then
+  rm -rf python-ios
   echo "==> Downloading Python $PY_VERSION for iOS (BeeWare python-apple-support)..."
   curl -fsSL -o "/tmp/$TARBALL" \
     "https://github.com/beeware/python-apple-support/releases/download/${PY_VERSION}-${IOS_SUPPORT_BUILD}/${TARBALL}"
   mkdir python-ios
   tar -xzf "/tmp/$TARBALL" -C python-ios
+  printf '%s\n' "$EXPECTED_SUPPORT" > "$STAMP"
 fi
 
 # ── Set up Python lib dirs ────────────────────────────────────────────────────

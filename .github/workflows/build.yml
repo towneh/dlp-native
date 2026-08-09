@@ -11,6 +11,11 @@ env:
   # The CPython that ships in the package. abi3-py312 in Cargo.toml is the floor
   # the native lib builds against, so the shipped runtime can be newer than that.
   PYTHON_VERSION: '3.14'
+  # Discovery request. The +gil variant keeps `uv python find` off a free-threaded
+  # build and off any active virtualenv (with --system). Install uses the bare
+  # version instead: the download index has no +gil tag, the GIL build is the
+  # untagged default, and only +freethreaded is labelled.
+  PYTHON_REQUEST: '3.14+gil'
   # python-apple-support release supplying the iOS static framework.
   IOS_SUPPORT_BUILD: 'b10'
 
@@ -44,7 +49,7 @@ jobs:
       - name: Stage Python stdlib
         shell: pwsh
         run: |
-          $python = (uv python find ${{ env.PYTHON_VERSION }}).Trim()
+          $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
           & $python scripts/stage_stdlib.py windows-x86_64 --python $python
 
       - name: CLI smoke test
@@ -139,7 +144,7 @@ jobs:
 
       - name: Stage Python stdlib
         run: |
-          PYTHON="$(uv python find ${{ env.PYTHON_VERSION }})"
+          PYTHON="$(uv python find --system ${{ env.PYTHON_REQUEST }})"
           "$PYTHON" scripts/stage_stdlib.py linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test

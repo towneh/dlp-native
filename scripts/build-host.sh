@@ -10,13 +10,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+# Keep in step with PYTHON_VERSION / PYTHON_REQUEST in .github/workflows/build.yml.
+# PY_VERSION names files; PY_REQUEST is the discovery request, where +gil plus
+# --system keeps uv off a free-threaded build and off any active virtualenv.
 PY_VERSION="3.14"
+PY_REQUEST="${PY_VERSION}+gil"
 
 # ── Locate Python via uv ──────────────────────────────────────────────────────
 echo "==> Locating Python $PY_VERSION via uv..."
-PY_EXE="$(uv python find "$PY_VERSION")"
-if [[ -z "$PY_EXE" ]]; then
+# Assigning the substitution directly would abort under `set -e` before the
+# error below could run, leaving only uv's own message.
+if ! PY_EXE="$(uv python find --system "$PY_REQUEST" 2>/dev/null)" || [[ -z "$PY_EXE" ]]; then
   echo "ERROR: Python $PY_VERSION not found via uv. Run: uv python install $PY_VERSION" >&2
   exit 1
 fi

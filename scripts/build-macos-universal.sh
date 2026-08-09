@@ -17,13 +17,16 @@ cd "$REPO_ROOT"
 ARM="aarch64-apple-darwin"
 X86="x86_64-apple-darwin"
 
-# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+# Keep in step with PYTHON_VERSION / PYTHON_REQUEST in .github/workflows/build.yml.
+# PY_VERSION names files; PY_REQUEST is the discovery request, where +gil plus
+# --system keeps uv off a free-threaded build and off any active virtualenv.
 PY_VERSION="3.14"
+PY_REQUEST="${PY_VERSION}+gil"
 
 # If PYO3_PYTHON is not already set (local dev), locate Python via uv.
 if [[ -z "${PYO3_PYTHON:-}" ]]; then
   if command -v uv &>/dev/null; then
-    PY_EXE="$(uv python find "$PY_VERSION" 2>/dev/null || true)"
+    PY_EXE="$(uv python find --system "$PY_REQUEST" 2>/dev/null || true)"
     if [[ -n "$PY_EXE" ]]; then
       export PYO3_PYTHON="$PY_EXE"
       echo "==> Python (uv): $PY_EXE"
