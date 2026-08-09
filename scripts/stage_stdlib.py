@@ -22,6 +22,9 @@ PLATFORM    Target identifier, e.g.:
             Defaults to ['Lib', 'DLLs'] on Windows, or the detected
             lib/pythonX.Y directory on POSIX.
 
+--exclude-dirs
+            Extra directory names to skip, on top of ALWAYS_EXCLUDE below.
+
 The zip is stored uncompressed (ZIP_STORED) so the OS can page individual
 files directly after extraction rather than decompressing everything upfront.
 """
@@ -32,6 +35,24 @@ import re
 import subprocess
 import sys
 import zipfile
+
+# Nothing under these is reachable at runtime: yt-dlp and its own dependencies
+# come from the bundled zip on sys.path, never from the staged prefix, so pip's
+# bootstrap and the build host's site-packages are dead weight. The rest is the
+# Tk stack and dev-only trees, which the embedded interpreter never imports.
+ALWAYS_EXCLUDE = frozenset(
+    {
+        "__pycache__",
+        "ensurepip",
+        "idlelib",
+        "lib2to3",
+        "pydoc_data",
+        "site-packages",
+        "test",
+        "tkinter",
+        "turtledemo",
+    }
+)
 
 # lib/ entries the POSIX base auto-detection will consider.
 _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
@@ -52,7 +73,7 @@ def main():
         nargs="+",
         metavar="DIR",
         default=[],
-        help="Directory names to skip (e.g. lib-dynload test)",
+        help="Extra directory names to skip, on top of the built-in list",
     )
     args = p.parse_args()
 
@@ -84,6 +105,8 @@ def main():
     out = os.path.join("unity_package", "StreamingAssets", "dlp", "stdlib", args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
+    exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
+
     total = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
         for base in bases:
@@ -91,7 +114,6 @@ def main():
             if not os.path.isdir(base_dir):
                 print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
                 continue
-            exclude = set(args.exclude_dirs) | {"__pycache__"}
             for root, dirs, files in os.walk(base_dir):
                 dirs[:] = [d for d in dirs if d not in exclude]
                 for f in files:
