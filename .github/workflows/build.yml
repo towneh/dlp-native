@@ -209,6 +209,10 @@ jobs:
           LIBPY="$(find "$PREFIX/lib" -maxdepth 1 -name 'libpython3.*.so*' | sort -V | tail -1)"
           PY_VER="$(echo "$LIBPY" | grep -oP '(?<=libpython)\d+\.\d+')"
           echo "==> Found libpython${PY_VER}"
+          if [ "$PY_VER" != "${{ env.PYTHON_VERSION }}" ]; then
+            echo "::error::Termux now ships Python ${PY_VER}, but this build targets ${{ env.PYTHON_VERSION }}. Bump PYTHON_VERSION and move the other platforms with it, or Android ends up on a different interpreter from everything else."
+            exit 1
+          fi
           cp -L "$LIBPY" "python-android-lib/libpython${PY_VER}.so"
           LIB_DIR="$(pwd)/python-android-lib"
           echo "PYO3_CROSS_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
