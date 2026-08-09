@@ -97,7 +97,11 @@ def main():
         if not os.path.isdir(lib_dir):
             sys.exit(f"ERROR: lib/ not found under prefix {prefix!r}")
         # Rank X.Y numerically; sorting the names puts python3.9 above python3.12.
-        py_dirs = [(int(m[1]), m[0]) for d in os.listdir(lib_dir) if (m := _PY_LIB_DIR_RE.match(d))]
+        py_dirs = [
+            (int(m[1]), m[0])
+            for d in os.listdir(lib_dir)
+            if (m := _PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
+        ]
         if not py_dirs:
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
         bases = [os.path.join("lib", max(py_dirs)[1])]
