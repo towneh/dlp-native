@@ -1,0 +1,30 @@
+# Ruff covers the two Python files in this repo: the yt-dlp JS-challenge shim
+# under python/ and the stdlib staging script under scripts/. Everything under
+# vendor/ is upstream (yt-dlp, yt-dlp-ejs) and is not ours to lint.
+
+target-version = "py312"
+line-length = 100
+extend-exclude = ["vendor"]
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # conflicts with the formatter
+    "ISC001",  # conflicts with the formatter
+    "CPY001",  # no per-file copyright headers in this repo
+    "D",       # docstring style; module/class docstrings are written where useful
+]
+
+[lint.per-file-ignores]
+# The shim's signatures are fixed by yt-dlp's JsChallengeProvider API — the
+# arguments have to be accepted whether or not this implementation reads them.
+"python/unity_dlp_jsc/**" = ["ANN001", "ARG001", "BLE001", "EM102", "TRY003"]
+
+# A build script: stdout is its output channel, and it runs against a Python
+# prefix the caller names, not untrusted input.
+"scripts/*.py" = ["ANN", "C901", "PTH", "S603", "T201"]
+
+[lint.isort]
+# unity_dlp_js is this project's PyO3 module, injected into sys.modules by
+# jsc_provider::register_module() — keep it out of the third-party block.
+known-first-party = ["unity_dlp_js"]

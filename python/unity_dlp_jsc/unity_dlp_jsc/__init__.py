@@ -7,8 +7,6 @@ The `unity_dlp_js` module is a PyO3-backed module registered into sys.modules
 by jsc_provider::register_module() before this package is imported.
 """
 
-import unity_dlp_js
-
 from yt_dlp.extractor.youtube.jsc._builtin.ejs import EJSBaseJCP
 from yt_dlp.extractor.youtube.jsc.provider import (
     JsChallengeProvider,
@@ -16,6 +14,8 @@ from yt_dlp.extractor.youtube.jsc.provider import (
     register_preference,
     register_provider,
 )
+
+import unity_dlp_js
 
 
 @register_provider
@@ -34,9 +34,7 @@ class UnityDlpJCP(EJSBaseJCP):
         try:
             return unity_dlp_js.run_js(stdin)
         except Exception as exc:
-            raise JsChallengeProviderError(
-                f"unity-dlp V8 runtime error: {exc}"
-            ) from exc
+            raise JsChallengeProviderError(f"unity-dlp V8 runtime error: {exc}") from exc
 
 
 @register_preference(UnityDlpJCP)
