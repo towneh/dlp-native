@@ -22,29 +22,59 @@ PLATFORM    Target identifier, e.g.:
             Defaults to ['Lib', 'DLLs'] on Windows, or the detected
             lib/pythonX.Y directory on POSIX.
 
+--exclude-dirs
+            Extra directory names to skip, on top of ALWAYS_EXCLUDE below.
+
 The zip is stored uncompressed (ZIP_STORED) so the OS can page individual
 files directly after extraction rather than decompressing everything upfront.
 """
+
 import argparse
 import os
+import re
 import subprocess
 import sys
 import zipfile
 
+# Nothing under these is reachable at runtime: yt-dlp and its own dependencies
+# come from the bundled zip on sys.path, never from the staged prefix, so pip's
+# bootstrap and the build host's site-packages are dead weight. The rest is the
+# Tk stack and dev-only trees, which the embedded interpreter never imports.
+ALWAYS_EXCLUDE = frozenset(
+    {
+        "__pycache__",
+        "ensurepip",
+        "idlelib",
+        "lib2to3",
+        "pydoc_data",
+        "site-packages",
+        "test",
+        "tkinter",
+        "turtledemo",
+    }
+)
+
+# lib/ entries the POSIX base auto-detection will consider.
+_PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
+
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('platform',
-                   help='Target platform id, e.g. windows-x86_64')
-    p.add_argument('--python',
-                   help='Python interpreter to query sys.prefix from')
-    p.add_argument('--prefix',
-                   help='Explicit Python prefix dir (for cross-compiled targets)')
-    p.add_argument('--bases', nargs='+',
-                   help='Sub-dirs of prefix to bundle (default: auto-detected)')
-    p.add_argument('--exclude-dirs', nargs='+', metavar='DIR', default=[],
-                   help='Directory names to skip (e.g. lib-dynload test)')
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument("platform", help="Target platform id, e.g. windows-x86_64")
+    p.add_argument("--python", help="Python interpreter to query sys.prefix from")
+    p.add_argument("--prefix", help="Explicit Python prefix dir (for cross-compiled targets)")
+    p.add_argument(
+        "--bases", nargs="+", help="Sub-dirs of prefix to bundle (default: auto-detected)"
+    )
+    p.add_argument(
+        "--exclude-dirs",
+        nargs="+",
+        metavar="DIR",
+        default=[],
+        help="Extra directory names to skip, on top of the built-in list",
+    )
     args = p.parse_args()
 
     # Resolve prefix
@@ -52,48 +82,53 @@ def main():
         prefix = os.path.abspath(args.prefix)
     elif args.python:
         prefix = subprocess.check_output(
-            [args.python, '-c', 'import sys; print(sys.prefix, end="")'],
-            text=True).strip()
+            [args.python, "-c", 'import sys; print(sys.prefix, end="")'], text=True
+        ).strip()
     else:
         prefix = sys.prefix
 
     # Resolve bases
     if args.bases:
         bases = args.bases
-    elif args.platform.startswith('windows'):
-        bases = ['Lib', 'DLLs']
+    elif args.platform.startswith("windows"):
+        bases = ["Lib", "DLLs"]
     else:
-        lib_dir = os.path.join(prefix, 'lib')
+        lib_dir = os.path.join(prefix, "lib")
         if not os.path.isdir(lib_dir):
-            sys.exit(f'ERROR: lib/ not found under prefix {prefix!r}')
-        py_dirs = sorted(d for d in os.listdir(lib_dir) if d.startswith('python3.'))
+            sys.exit(f"ERROR: lib/ not found under prefix {prefix!r}")
+        # Rank X.Y numerically; sorting the names puts python3.9 above python3.12.
+        py_dirs = [
+            (int(m[1]), m[0])
+            for d in os.listdir(lib_dir)
+            if (m := _PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
+        ]
         if not py_dirs:
-            sys.exit(f'ERROR: no python3.x directory found in {lib_dir!r}')
-        bases = [os.path.join('lib', py_dirs[-1])]
+            sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
+        bases = [os.path.join("lib", max(py_dirs)[1])]
 
-    out = os.path.join('unity_package', 'StreamingAssets', 'dlp', 'stdlib',
-                       args.platform + '.zip')
+    out = os.path.join("unity_package", "StreamingAssets", "dlp", "stdlib", args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
+    exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
+
     total = 0
-    with zipfile.ZipFile(out, 'w', zipfile.ZIP_STORED) as z:
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
         for base in bases:
             base_dir = os.path.join(prefix, base)
             if not os.path.isdir(base_dir):
-                print(f'WARNING: {base_dir!r} not found, skipping', file=sys.stderr)
+                print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
                 continue
-            exclude = set(args.exclude_dirs) | {'__pycache__'}
             for root, dirs, files in os.walk(base_dir):
                 dirs[:] = [d for d in dirs if d not in exclude]
                 for f in files:
                     full = os.path.join(root, f)
-                    arc = os.path.relpath(full, prefix).replace(os.sep, '/')
+                    arc = os.path.relpath(full, prefix).replace(os.sep, "/")
                     z.write(full, arc)
                     total += 1
 
     size_mb = os.path.getsize(out) / 1_048_576
-    print(f'Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)')
+    print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

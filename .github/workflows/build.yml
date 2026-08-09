@@ -344,7 +344,7 @@ jobs:
           # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
           # extensions are compiled into libpythonX.Y.a by python-apple-support).
           python3 scripts/stage_stdlib.py ios-arm64 \
-            --exclude-dirs lib-dynload test
+            --exclude-dirs lib-dynload
 
       - name: Stage artifact
         run: |
