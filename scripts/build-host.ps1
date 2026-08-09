@@ -18,11 +18,13 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 
-# ── Locate Python 3.12 via uv ─────────────────────────────────────────────────
-Write-Host '==> Locating Python 3.12 via uv...'
-$PyExe = (uv python find 3.12 2>&1).Trim()
+# ── Locate Python via uv ──────────────────────────────────────────────────────
+# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+$PyVersion = '3.14'
+Write-Host "==> Locating Python $PyVersion via uv..."
+$PyExe = (uv python find $PyVersion 2>&1).Trim()
 if (-not (Test-Path $PyExe)) {
-    Write-Error "Python 3.12 not found via uv. Run: uv python install 3.12"
+    Write-Error "Python $PyVersion not found via uv. Run: uv python install $PyVersion"
 }
 $PyPrefix = (& $PyExe -c "import sys; print(sys.prefix, end='')").Trim()
 Write-Host "    Python : $PyExe"
@@ -55,8 +57,9 @@ Copy-Item $DllSrc $Dest -Force
 Write-Host "==> Copied unity_dlp.dll → $Dest"
 
 # Copy the Python runtime DLLs that unity_dlp.dll links against.
-# python3.dll is the stable-ABI forwarder; python312.dll is the full runtime.
-foreach ($dll in @('python3.dll', 'python312.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+# python3.dll is the stable-ABI forwarder; pythonXY.dll is the full runtime.
+$PyDll = "python$($PyVersion -replace '\.', '').dll"
+foreach ($dll in @('python3.dll', $PyDll, 'vcruntime140.dll', 'vcruntime140_1.dll')) {
     $src = Join-Path $PyPrefix $dll
     if (Test-Path $src) {
         Copy-Item $src $Dest -Force

@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # The CPython that ships in the package. abi3-py312 in Cargo.toml is the floor
+  # the native lib builds against, so the shipped runtime can be newer than that.
+  PYTHON_VERSION: '3.14'
+  # python-apple-support release supplying the iOS static framework.
+  IOS_SUPPORT_BUILD: 'b10'
 
 jobs:
   # ── Windows x64 ─────────────────────────────────────────────────────────────
@@ -21,8 +26,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: Install Python 3.12
-        run: uv python install 3.12
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -39,7 +44,7 @@ jobs:
       - name: Stage Python stdlib
         shell: pwsh
         run: |
-          $python = (uv python find 3.12).Trim()
+          $python = (uv python find ${{ env.PYTHON_VERSION }}).Trim()
           & $python scripts/stage_stdlib.py windows-x86_64 --python $python
 
       - name: CLI smoke test
@@ -62,12 +67,12 @@ jobs:
         with:
           submodules: recursive
 
-      # actions/setup-python on macos-latest installs a universal2 Python 3.12,
-      # which PyO3 can use for both the native arm64 and the x86_64 cross-compile.
-      - name: Install Python 3.12 (universal2)
+      # actions/setup-python on macos-latest installs a universal2 build, which
+      # PyO3 can use for both the native arm64 and the x86_64 cross-compile.
+      - name: Install Python ${{ env.PYTHON_VERSION }} (universal2)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Export PYO3_PYTHON
         run: echo "PYO3_PYTHON=$(python3 -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
@@ -117,8 +122,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      - name: Install Python 3.12
-        run: uv python install 3.12
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -134,7 +139,7 @@ jobs:
 
       - name: Stage Python stdlib
         run: |
-          PYTHON="$(uv python find 3.12)"
+          PYTHON="$(uv python find ${{ env.PYTHON_VERSION }})"
           "$PYTHON" scripts/stage_stdlib.py linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test
@@ -184,7 +189,9 @@ jobs:
           key: android-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: android-cargo-
 
-      - name: Download Termux Python 3.12 for aarch64
+      # Termux's pool only carries the current build, so there is no older version
+      # to pin to — take the latest and assert the version in the next step.
+      - name: Download Termux Python for aarch64
         run: |
           BASE="https://packages.termux.dev/apt/termux-main/pool/main/p/python"
           PYTHON_DEB="$(curl -fsSL "$BASE/" \
@@ -248,7 +255,6 @@ jobs:
     name: iOS arm64
     runs-on: macos-latest
     env:
-      PYO3_CROSS_PYTHON_VERSION: '3.12'
       IPHONEOS_DEPLOYMENT_TARGET: '16.0'
     steps:
       - uses: actions/checkout@v4
@@ -258,39 +264,45 @@ jobs:
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
-      - name: Install Python 3.12 (host — stdlib source for iOS)
+      - name: Install Python ${{ env.PYTHON_VERSION }} (host — stdlib source for iOS)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache Python for iOS arm64 (python-apple-support)
         id: cache-py-ios
         uses: actions/cache@v4
         with:
           path: python-ios
-          key: python-3.12-ios-support-b8
+          key: python-${{ env.PYTHON_VERSION }}-ios-support-${{ env.IOS_SUPPORT_BUILD }}
 
-      - name: Download Python 3.12 for iOS (BeeWare python-apple-support)
+      - name: Download Python ${{ env.PYTHON_VERSION }} for iOS (BeeWare python-apple-support)
         if: steps.cache-py-ios.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL -o Python-3.12-iOS-support.b8.tar.gz \
-            "https://github.com/beeware/python-apple-support/releases/download/3.12-b8/Python-3.12-iOS-support.b8.tar.gz"
+          TAG="${{ env.PYTHON_VERSION }}-${{ env.IOS_SUPPORT_BUILD }}"
+          TARBALL="Python-${{ env.PYTHON_VERSION }}-iOS-support.${{ env.IOS_SUPPORT_BUILD }}.tar.gz"
+          curl -fsSL -o "$TARBALL" \
+            "https://github.com/beeware/python-apple-support/releases/download/${TAG}/${TARBALL}"
           mkdir python-ios
-          tar -xzf Python-3.12-iOS-support.b8.tar.gz -C python-ios
+          tar -xzf "$TARBALL" -C python-ios
 
       # python-apple-support ships Python.xcframework; PyO3 wants a lib dir with
-      # libpython3.12.a. Create shim directories for both device and simulator.
+      # libpythonX.Y.a. Create shim directories for both device and simulator.
       - name: Set up Python lib dirs for iOS device and simulator
         run: |
+          LIBPY="libpython${{ env.PYTHON_VERSION }}.a"
           DEVICE_FW="$(pwd)/python-ios/Python.xcframework/ios-arm64/Python.framework"
           SIM_FW_DIR="$(ls -d "$(pwd)/python-ios/Python.xcframework/"*simulator*/ | head -1)"
           SIM_FW="${SIM_FW_DIR%/}/Python.framework"
           mkdir -p python-ios-device-lib python-ios-sim-lib
-          cp "${DEVICE_FW}/Python" python-ios-device-lib/libpython3.12.a
-          cp "${SIM_FW}/Python"    python-ios-sim-lib/libpython3.12.a
+          cp "${DEVICE_FW}/Python" "python-ios-device-lib/${LIBPY}"
+          cp "${SIM_FW}/Python"    "python-ios-sim-lib/${LIBPY}"
           echo "CFLAGS=-I${DEVICE_FW}/Headers" >> "$GITHUB_ENV"
           echo "IOS_DEVICE_LIB=$(pwd)/python-ios-device-lib" >> "$GITHUB_ENV"
           echo "IOS_SIM_LIB=$(pwd)/python-ios-sim-lib"       >> "$GITHUB_ENV"
+          # Set here rather than in the job env block: job-level env cannot read
+          # the workflow-level env context.
+          echo "PYO3_CROSS_PYTHON_VERSION=${{ env.PYTHON_VERSION }}" >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -321,7 +333,7 @@ jobs:
           # python-apple-support only ships the compiled static lib + headers;
           # the stdlib comes from the macOS host Python installed above.
           # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
-          # extensions are compiled into libpython3.12.a by python-apple-support).
+          # extensions are compiled into libpythonX.Y.a by python-apple-support).
           python3 scripts/stage_stdlib.py ios-arm64 \
             --exclude-dirs lib-dynload test
 

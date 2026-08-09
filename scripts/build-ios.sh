@@ -15,15 +15,21 @@ cd "$REPO_ROOT"
 DEVICE="aarch64-apple-ios"
 SIM="aarch64-apple-ios-sim"
 export IPHONEOS_DEPLOYMENT_TARGET="16.0"
-export PYO3_CROSS_PYTHON_VERSION="3.12"
+
+# Keep in step with PYTHON_VERSION / IOS_SUPPORT_BUILD in
+# .github/workflows/build.yml.
+PY_VERSION="3.14"
+IOS_SUPPORT_BUILD="b10"
+export PYO3_CROSS_PYTHON_VERSION="$PY_VERSION"
 
 # ── Fetch python-apple-support if needed ──────────────────────────────────────
+TARBALL="Python-${PY_VERSION}-iOS-support.${IOS_SUPPORT_BUILD}.tar.gz"
 if [[ ! -d python-ios ]]; then
-  echo "==> Downloading Python 3.12 for iOS (BeeWare python-apple-support)..."
-  curl -fsSL -o /tmp/Python-3.12-iOS-support.b8.tar.gz \
-    "https://github.com/beeware/python-apple-support/releases/download/3.12-b8/Python-3.12-iOS-support.b8.tar.gz"
+  echo "==> Downloading Python $PY_VERSION for iOS (BeeWare python-apple-support)..."
+  curl -fsSL -o "/tmp/$TARBALL" \
+    "https://github.com/beeware/python-apple-support/releases/download/${PY_VERSION}-${IOS_SUPPORT_BUILD}/${TARBALL}"
   mkdir python-ios
-  tar -xzf /tmp/Python-3.12-iOS-support.b8.tar.gz -C python-ios
+  tar -xzf "/tmp/$TARBALL" -C python-ios
 fi
 
 # ── Set up Python lib dirs ────────────────────────────────────────────────────
@@ -32,8 +38,8 @@ SIM_FW_DIR="$(ls -d "$(pwd)/python-ios/Python.xcframework/"*simulator*/ | head -
 SIM_FW="${SIM_FW_DIR%/}/Python.framework"
 
 mkdir -p python-ios-device-lib python-ios-sim-lib
-cp "$DEVICE_FW/Python" python-ios-device-lib/libpython3.12.a
-cp "$SIM_FW/Python"    python-ios-sim-lib/libpython3.12.a
+cp "$DEVICE_FW/Python" "python-ios-device-lib/libpython${PY_VERSION}.a"
+cp "$SIM_FW/Python"    "python-ios-sim-lib/libpython${PY_VERSION}.a"
 export CFLAGS="-I$DEVICE_FW/Headers"
 
 # ── Build device (arm64) ──────────────────────────────────────────────────────

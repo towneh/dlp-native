@@ -188,13 +188,13 @@ fn run_hatch_build_py(workspace_root: &PathBuf, ejs_dir: &PathBuf) -> bool {
 }
 
 /// Locate the Python interpreter: prefer `PYO3_PYTHON` env var, fall back to
-/// `uv python find 3.12`, then `python3`.
+/// `uv python find 3.14`, then `python3`.
 fn find_python(workspace_root: &PathBuf) -> String {
     if let Ok(p) = env::var("PYO3_PYTHON") {
         return p;
     }
     let uv = std::process::Command::new("uv")
-        .args(["python", "find", "3.12"])
+        .args(["python", "find", "3.14"])
         .current_dir(workspace_root)
         .output();
     if let Ok(o) = uv {

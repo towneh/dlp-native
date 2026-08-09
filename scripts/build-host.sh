@@ -4,17 +4,20 @@
 #
 # Requirements:
 #   - Rust toolchain (see rust-toolchain.toml)
-#   - uv with Python 3.12 installed  (`uv python install 3.12`)
+#   - uv with the Python below installed  (`uv python install $PY_VERSION`)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# ── Locate Python 3.12 via uv ─────────────────────────────────────────────────
-echo "==> Locating Python 3.12 via uv..."
-PY_EXE="$(uv python find 3.12)"
+# Keep in step with PYTHON_VERSION in .github/workflows/build.yml.
+PY_VERSION="3.14"
+
+# ── Locate Python via uv ──────────────────────────────────────────────────────
+echo "==> Locating Python $PY_VERSION via uv..."
+PY_EXE="$(uv python find "$PY_VERSION")"
 if [[ -z "$PY_EXE" ]]; then
-  echo "ERROR: Python 3.12 not found via uv. Run: uv python install 3.12" >&2
+  echo "ERROR: Python $PY_VERSION not found via uv. Run: uv python install $PY_VERSION" >&2
   exit 1
 fi
 echo "    Python: $PY_EXE"
