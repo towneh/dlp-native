@@ -28,9 +28,13 @@ files directly after extraction rather than decompressing everything upfront.
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import zipfile
+
+# lib/ entries the POSIX base auto-detection will consider.
+_PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
 
 def main():
@@ -71,10 +75,11 @@ def main():
         lib_dir = os.path.join(prefix, "lib")
         if not os.path.isdir(lib_dir):
             sys.exit(f"ERROR: lib/ not found under prefix {prefix!r}")
-        py_dirs = sorted(d for d in os.listdir(lib_dir) if d.startswith("python3."))
+        # Rank X.Y numerically; sorting the names puts python3.9 above python3.12.
+        py_dirs = [(int(m[1]), m[0]) for d in os.listdir(lib_dir) if (m := _PY_LIB_DIR_RE.match(d))]
         if not py_dirs:
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
-        bases = [os.path.join("lib", py_dirs[-1])]
+        bases = [os.path.join("lib", max(py_dirs)[1])]
 
     out = os.path.join("unity_package", "StreamingAssets", "dlp", "stdlib", args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
