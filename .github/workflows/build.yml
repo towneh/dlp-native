@@ -353,16 +353,121 @@ jobs:
           restore-keys: android-cargo-
 
       # Termux's pool only carries the current build, so there is no older version
-      # to pin to — take the latest and assert the version in the next step.
+      # to pin to — take the latest and assert the version in the next step. The
+      # download is checked against the SHA-256 the repository index publishes for
+      # it, since this binary ends up in the shipped artifact and runs inside the
+      # application's own process.
+      # The index states the checksum of every package, so it decides what counts as
+      # authentic and has to be authenticated itself. Its OpenPGP signature is checked
+      # against a key committed to this repository: fetching the key would leave the
+      # trust rooted in whatever served it, which is the thing being established.
+      - name: Fetch and authenticate the Termux package index
+        run: |
+          set -euo pipefail
+          FPR="CC72CF8BA7DBFA0182877D045A897D96E57CF20C"
+          DIST="https://packages.termux.dev/apt/termux-main/dists/stable"
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          gpg --quiet --import .github/keys/termux-autobuilds.gpg
+
+          curl -fsSL "$DIST/InRelease" -o /tmp/termux-inrelease
+          # VALIDSIG carries the fingerprint that actually signed it. Checking the
+          # exit status alone would accept a good signature from any imported key.
+          # --batch --yes: without them gpg asks before replacing an existing output
+          # file, and a re-run fails there instead of at any of the checks below.
+          gpg --batch --yes --status-fd 1 --output /tmp/termux-release \
+            --decrypt /tmp/termux-inrelease > /tmp/termux-gpg-status 2>/dev/null
+          if ! grep -q "^\[GNUPG:\] VALIDSIG $FPR " /tmp/termux-gpg-status; then
+            echo "::error::the Termux index is not signed by $FPR"
+            cat /tmp/termux-gpg-status
+            exit 1
+          fi
+
+          # A signature says the index is authentic, not that it is current. Without
+          # an age bound an old index, the package list it vouches for and the
+          # packages themselves can be served together, and every check here passes
+          # while an outdated interpreter is built. Termux publishes no Valid-Until,
+          # so the bound comes from the signed Date; the field is honoured anyway in
+          # case that changes.
+          MAX_AGE_DAYS=7
+          now="$(date -u +%s)"
+
+          expires="$(sed -n 's/^Valid-Until: //p' /tmp/termux-release | head -1)"
+          if [ -n "$expires" ]; then
+            expires_epoch="$(date -u -d "$expires" +%s 2>/dev/null || true)"
+            if [ -z "$expires_epoch" ]; then
+              echo "::error::could not read Valid-Until from the signed index: $expires"
+              exit 1
+            fi
+            if [ "$expires_epoch" -lt "$now" ]; then
+              echo "::error::the signed index expired at $expires"
+              exit 1
+            fi
+          fi
+
+          released="$(sed -n 's/^Date: //p' /tmp/termux-release | head -1)"
+          released_epoch="$(date -u -d "$released" +%s 2>/dev/null || true)"
+          if [ -z "$released_epoch" ]; then
+            echo "::error::the signed index carries no readable Date, so its age cannot be bounded"
+            exit 1
+          fi
+          age_days=$(( (now - released_epoch) / 86400 ))
+          if [ "$age_days" -gt "$MAX_AGE_DAYS" ]; then
+            echo "::error::the signed index is ${age_days} days old, over the ${MAX_AGE_DAYS} day limit. Either the repository has stopped publishing or an old index is being replayed; confirm which before raising the limit."
+            exit 1
+          fi
+          echo "==> index dated $released (${age_days}d old)"
+
+          curl -fsSL "$DIST/main/binary-aarch64/Packages" -o /tmp/termux-packages
+          WANT="$(awk '/^SHA256:/ { s = 1; next } /^[A-Za-z]/ { s = 0 }
+            s && $3 == "main/binary-aarch64/Packages" { print $1; exit }' /tmp/termux-release)"
+          GOT="$(sha256sum /tmp/termux-packages | cut -d' ' -f1)"
+          if [ -z "$WANT" ] || [ "$WANT" != "$GOT" ]; then
+            echo "::error::the package index does not match the checksum in the signed release ($WANT vs $GOT)"
+            exit 1
+          fi
+          echo "==> index authenticated against $FPR"
+
       - name: Download Termux Python for aarch64
         run: |
+          set -euo pipefail
           BASE="https://packages.termux.dev/apt/termux-main/pool/main/p/python"
           PYTHON_DEB="$(curl -fsSL "$BASE/" \
             | grep -oP 'python_[^"]+_aarch64\.deb' | sort -V | tail -1)"
           echo "==> $PYTHON_DEB"
           curl -fsSL "$BASE/$PYTHON_DEB" -o /tmp/python.deb
+          WANT="$(awk -v deb="$PYTHON_DEB" 'BEGIN { RS = "" }
+            $0 ~ ("Filename: .*/" deb "\n") {
+              for (i = 1; i <= NF; i++) if ($i == "SHA256:") { print $(i + 1); exit }
+            }' /tmp/termux-packages)"
+          if [ -z "$WANT" ]; then
+            echo "::error::the authenticated index publishes no SHA256 for $PYTHON_DEB"
+            exit 1
+          fi
+          echo "$WANT  /tmp/python.deb" | sha256sum -c -
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
+
+      # Termux's libpython is built against Termux's own libc compatibility shim,
+      # which ships as a separate package. It has to travel with the interpreter:
+      # without it the loader cannot open libunity_dlp, and Unity reports that as
+      # DllNotFoundException on the plugin rather than on the library actually absent.
+      # Extracted over the same prefix so the staging step below finds both together.
+      # Pinned rather than latest-wins, and checked before it is opened: this ends up
+      # in the shipped artifact and is loaded into the application's process.
+      - name: Download Termux libandroid-support for aarch64
+        run: |
+          set -euo pipefail
+          SUPPORT_DEB="libandroid-support_29-1_aarch64.deb"
+          SUPPORT_SHA256="f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
+          BASE="https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-support"
+          if ! curl -fsSL "$BASE/$SUPPORT_DEB" -o /tmp/libandroid-support.deb; then
+            echo "::error::$SUPPORT_DEB is no longer in the Termux pool, which keeps only the current build. Read the new version and its SHA256 out of dists/stable/main/binary-aarch64/Packages and move both together."
+            exit 1
+          fi
+          echo "$SUPPORT_SHA256  /tmp/libandroid-support.deb" | sha256sum -c -
+          cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
 
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
         run: |
@@ -403,20 +508,80 @@ jobs:
 
       - name: Stage artifact
         run: |
-          mkdir -p unity_package/Plugins/Android/libs/arm64-v8a
-          cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so \
-            unity_package/Plugins/Android/libs/arm64-v8a/
+          set -euo pipefail
+          DEST=unity_package/Plugins/Android/libs/arm64-v8a
+          mkdir -p "$DEST"
+          cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so "$DEST/"
+          # Under each library's own SONAME, because that is the name its dependents
+          # record in NEEDED and therefore the only name the loader will look for.
+          # Termux ships these unversioned today, so this is about surviving the day
+          # it ships libpython3.14.so.1.0 instead.
           LIBPY="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libpython3.*.so*' \
             | sort -V | tail -1)"
-          cp -L "$LIBPY" unity_package/Plugins/Android/libs/arm64-v8a/
+          LIBSUPPORT="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libandroid-support.so*' \
+            | sort -V | tail -1)"
+          for src in "$LIBPY" "$LIBSUPPORT"; do
+            soname="$(readelf -d "$src" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')"
+            # libandroid-support declares no SONAME. A library without one is
+            # recorded by its dependents under the filename they linked against,
+            # so that filename is the name to stage it under.
+            [ -n "$soname" ] || soname="$(basename "$src")"
+            cp -L "$src" "$DEST/$soname"
+          done
+
+      # A library that is needed but never staged does not fail anything here — it
+      # fails at dlopen on the device, reported against whichever library depends on
+      # it. Resolve every NEEDED entry now, against what is staged plus the platform's
+      # own libraries, so that gap is a red build instead of a red headset.
+      - name: Verify staged Android libraries resolve
+        run: |
+          cd unity_package/Plugins/Android/libs/arm64-v8a
+          # Without this the loop below reads nothing and the step passes, which is the
+          # failure it exists to catch.
+          command -v readelf >/dev/null || {
+            echo "::error::readelf is not installed, so this check cannot run"
+            exit 1
+          }
+          # Only libraries Android itself provides. libc++_shared is deliberately
+          # absent: it is an NDK runtime, so anything needing it has to be staged
+          # here rather than borrowed from whatever else the host application ships.
+          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
+          rc=0
+          # *.so* rather than *.so, so a version-suffixed name is examined here
+          # instead of being skipped by the very check meant to reject it.
+          for so in *.so*; do
+            # The loader resolves NEEDED entries by exact filename, and a name
+            # carrying a version suffix would not match the staged file.
+            case "$so" in
+              lib*.so) ;;
+              *)
+                echo "::error::$so is not named lib<name>.so, so nothing depending on it can resolve it"
+                rc=1
+                ;;
+            esac
+            dyn="$(readelf -d "$so")" || {
+              echo "::error::readelf could not read $so"
+              exit 1
+            }
+            for need in $(printf '%s' "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+              if [ -f "$need" ]; then
+                continue
+              fi
+              if printf '%s' "$need" | grep -qE "$platform"; then
+                continue
+              fi
+              echo "::error::$so needs $need, which is neither staged beside it nor an Android platform library"
+              rc=1
+            done
+          done
+          exit "$rc"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-android-arm64
           path: |
-            unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
-            unity_package/Plugins/Android/libs/arm64-v8a/libpython*.so*
+            unity_package/Plugins/Android/libs/arm64-v8a/
             unity_package/StreamingAssets/dlp/
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────

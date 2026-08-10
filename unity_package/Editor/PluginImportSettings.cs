@@ -24,8 +24,8 @@ namespace YtDlp.Editor
             ConfigureMacOsUniversal();
             ConfigureLinuxX64();
             ConfigureIos();
-            ConfigureAndroidArm64();
-            ConfigureAndroidArmV7();
+            ConfigureAndroidAbi("arm64-v8a", "ARM64");
+            ConfigureAndroidAbi("armeabi-v7a", "ARMv7");
             AssetDatabase.Refresh();
         }
 
@@ -81,30 +81,27 @@ namespace YtDlp.Editor
             imp.SaveAndReimport();
         }
 
-        private static void ConfigureAndroidArm64()
+        // Every .so in the ABI directory, because the plugin is not the only one that
+        // has to reach the device: it links against the Termux libpython, which in turn
+        // needs libandroid-support. An unconfigured .so is left out of the APK silently,
+        // and the loader then reports the plugin as missing rather than the library that
+        // actually is.
+        private static void ConfigureAndroidAbi(string abi, string cpu)
         {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/Android/libs/arm64-v8a/libunity_dlp.so";
-            if (!File.Exists(Path.GetFullPath(path))) return;
-            var imp = AssetImporter.GetAtPath(path) as PluginImporter;
-            if (imp == null) return;
-            imp.SetCompatibleWithAnyPlatform(false);
-            imp.SetCompatibleWithEditor(false);
-            imp.SetCompatibleWithPlatform(BuildTarget.Android, true);
-            imp.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
-            imp.SaveAndReimport();
-        }
+            var dir = $"Packages/com.yewnyx.ytdlp/Plugins/Android/libs/{abi}";
+            var fullDir = Path.GetFullPath(dir);
+            if (!Directory.Exists(fullDir)) return;
 
-        private static void ConfigureAndroidArmV7()
-        {
-            var path = "Packages/com.yewnyx.ytdlp/Plugins/Android/libs/armeabi-v7a/libunity_dlp.so";
-            if (!File.Exists(Path.GetFullPath(path))) return;
-            var imp = AssetImporter.GetAtPath(path) as PluginImporter;
-            if (imp == null) return;
-            imp.SetCompatibleWithAnyPlatform(false);
-            imp.SetCompatibleWithEditor(false);
-            imp.SetCompatibleWithPlatform(BuildTarget.Android, true);
-            imp.SetPlatformData(BuildTarget.Android, "CPU", "ARMv7");
-            imp.SaveAndReimport();
+            foreach (var file in Directory.GetFiles(fullDir, "*.so"))
+            {
+                var imp = AssetImporter.GetAtPath($"{dir}/{Path.GetFileName(file)}") as PluginImporter;
+                if (imp == null) continue;
+                imp.SetCompatibleWithAnyPlatform(false);
+                imp.SetCompatibleWithEditor(false);
+                imp.SetCompatibleWithPlatform(BuildTarget.Android, true);
+                imp.SetPlatformData(BuildTarget.Android, "CPU", cpu);
+                imp.SaveAndReimport();
+            }
         }
     }
 }
