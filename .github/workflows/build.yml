@@ -186,11 +186,12 @@ jobs:
 
       - name: Locate Android NDK and configure bindgen sysroot
         run: |
-          NDK_DIR="$(ls -d "$ANDROID_SDK_ROOT"/ndk/*/ | sort -V | tail -1)"
-          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          NDK_DIR="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           NDK_SYSROOT="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26" \
-            >> "$GITHUB_ENV"
+          {
+            echo "ANDROID_NDK_HOME=$NDK_DIR"
+            echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26"
+          } >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -227,14 +228,16 @@ jobs:
           fi
           cp -L "$LIBPY" "python-android-lib/libpython${PY_VER}.so"
           LIB_DIR="$(pwd)/python-android-lib"
-          echo "PYO3_CROSS_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
-          echo "PYO3_CROSS_PYTHON_VERSION=${PY_VER}" >> "$GITHUB_ENV"
           # PYO3_NO_PYTHON skips sysconfig parsing; without it pyo3-build-config reads
           # LIBDIR from the Termux sysconfig (/data/data/com.termux/...) which doesn't
-          # exist on the runner, so the linker search path is wrong.
-          echo "PYO3_NO_PYTHON=1" >> "$GITHUB_ENV"
-          # Expose prefix for stdlib staging
-          echo "TERMUX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          # exist on the runner, so the linker search path is wrong. TERMUX_PREFIX is
+          # exposed for stdlib staging.
+          {
+            echo "PYO3_CROSS_LIB_DIR=$LIB_DIR"
+            echo "PYO3_CROSS_PYTHON_VERSION=${PY_VER}"
+            echo "PYO3_NO_PYTHON=1"
+            echo "TERMUX_PREFIX=$PREFIX"
+          } >> "$GITHUB_ENV"
 
       - name: Build Android arm64-v8a
         run: |
@@ -309,17 +312,20 @@ jobs:
         run: |
           LIBPY="libpython${{ env.PYTHON_VERSION }}.a"
           DEVICE_FW="$(pwd)/python-ios/Python.xcframework/ios-arm64/Python.framework"
-          SIM_FW_DIR="$(ls -d "$(pwd)/python-ios/Python.xcframework/"*simulator*/ | head -1)"
+          SIM_FW_DIR="$(find "$(pwd)/python-ios/Python.xcframework" -mindepth 1 -maxdepth 1 \
+            -type d -name '*simulator*' | head -1)"
           SIM_FW="${SIM_FW_DIR%/}/Python.framework"
           mkdir -p python-ios-device-lib python-ios-sim-lib
           cp "${DEVICE_FW}/Python" "python-ios-device-lib/${LIBPY}"
           cp "${SIM_FW}/Python"    "python-ios-sim-lib/${LIBPY}"
-          echo "CFLAGS=-I${DEVICE_FW}/Headers" >> "$GITHUB_ENV"
-          echo "IOS_DEVICE_LIB=$(pwd)/python-ios-device-lib" >> "$GITHUB_ENV"
-          echo "IOS_SIM_LIB=$(pwd)/python-ios-sim-lib"       >> "$GITHUB_ENV"
-          # Set here rather than in the job env block: job-level env cannot read
-          # the workflow-level env context.
-          echo "PYO3_CROSS_PYTHON_VERSION=${{ env.PYTHON_VERSION }}" >> "$GITHUB_ENV"
+          # PYO3_CROSS_PYTHON_VERSION is set here rather than in the job env block:
+          # job-level env cannot read the workflow-level env context.
+          {
+            echo "CFLAGS=-I${DEVICE_FW}/Headers"
+            echo "IOS_DEVICE_LIB=$(pwd)/python-ios-device-lib"
+            echo "IOS_SIM_LIB=$(pwd)/python-ios-sim-lib"
+            echo "PYO3_CROSS_PYTHON_VERSION=${{ env.PYTHON_VERSION }}"
+          } >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -332,14 +338,16 @@ jobs:
 
       - name: Build iOS device (arm64)
         run: |
-          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SDKROOT
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_DEVICE_LIB" \
             cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios \
             --no-default-features --features js-quickjs
 
       - name: Build iOS simulator (arm64)
         run: |
-          export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          export SDKROOT
           BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT" \
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_SIM_LIB" \
             cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios-sim \
