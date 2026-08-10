@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use once_cell::sync::OnceCell;
 
@@ -91,11 +91,70 @@ pub const UNITY_DLP_ERR_BUF: UnityDlpResult = -5;
 
 // ── Init / shutdown ───────────────────────────────────────────────────────────
 
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
+// Readiness is tri-state rather than a bool: the interpreter is not usable
+// during the window between claiming initialisation and Py_Initialize actually
+// returning, and a caller entering that window would trip PyO3's
+// uninitialised-interpreter assert, which aborts the host process.
+const STATE_UNINIT: i32 = 0;
+const STATE_INITIALISING: i32 = 1;
+const STATE_READY: i32 = 2;
+/// Interpreter start-up failed, permanently. `python_host::init` caches its
+/// outcome in a `OnceCell`, so once it has returned `Err` every later call gets
+/// that same clone back. Re-running initialisation could only fail identically,
+/// so this state is terminal: it reports the original failure instead of
+/// advertising a retry that cannot succeed.
+const STATE_FAILED: i32 = 3;
+
+static INIT_STATE: AtomicI32 = AtomicI32::new(STATE_UNINIT);
 // The result code the first successful init returned (UNITY_DLP_OK or
 // UNITY_DLP_OK_DEGRADED). Later no-op calls echo it so every caller sees the
-// same verdict rather than an unconditional OK.
+// same verdict rather than an unconditional OK. Written before INIT_STATE is
+// released to STATE_READY, so anyone who observes READY also observes this.
 static INIT_CODE: AtomicI32 = AtomicI32::new(UNITY_DLP_OK);
+
+/// The reason interpreter start-up failed, kept for the terminal state.
+///
+/// `LAST_ERROR` cannot be relied on to still hold it: any later call to
+/// `unity_dlp_extract` overwrites it with "library not initialised", so by the
+/// time a second `unity_dlp_init` arrives the actionable reason would be gone.
+static INIT_FAILURE: OnceCell<String> = OnceCell::new();
+
+/// True once `unity_dlp_init` has completed successfully.
+fn is_ready() -> bool {
+    INIT_STATE.load(Ordering::Acquire) == STATE_READY
+}
+
+/// Run an exported entry point with a panic barrier.
+///
+/// `extern "C"` functions abort the process if a panic escapes them, and this
+/// library is loaded in-process by the Unity Editor and shipped clients, so an
+/// abort takes the host down. Remote data flows through PyO3, V8 and QuickJS
+/// below these entry points; a panic anywhere in that stack is turned into an
+/// error code here instead.
+fn ffi_guard<F>(on_panic: UnityDlpResult, f: F) -> UnityDlpResult
+where
+    F: FnOnce() -> UnityDlpResult,
+{
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(code) => code,
+        Err(payload) => {
+            let detail = panic_detail(payload.as_ref());
+            log::error!("panic crossing the C ABI boundary: {detail}");
+            set_last_error(format!("panic in native library: {detail}"));
+            on_panic
+        }
+    }
+}
+
+fn panic_detail(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
 
 /// Initialise the native library.
 ///
@@ -116,11 +175,39 @@ pub extern "C" fn unity_dlp_init(
     python_home_utf8: *const c_char,
     packages_path_utf8: *const c_char,
 ) -> UnityDlpResult {
-    if INITIALIZED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return INIT_CODE.load(Ordering::SeqCst);
+    ffi_guard(UNITY_DLP_ERR_INIT, || unity_dlp_init_inner(python_home_utf8, packages_path_utf8))
+}
+
+fn unity_dlp_init_inner(
+    python_home_utf8: *const c_char,
+    packages_path_utf8: *const c_char,
+) -> UnityDlpResult {
+    match INIT_STATE.compare_exchange(
+        STATE_UNINIT,
+        STATE_INITIALISING,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => {}
+        Err(STATE_INITIALISING) => {
+            // Another thread is mid-initialisation. Reporting OK here would tell
+            // the caller the interpreter is usable while Py_Initialize is still
+            // running, so refuse instead.
+            set_last_error("initialisation is already in progress on another thread");
+            return UNITY_DLP_ERR_INIT;
+        }
+        Err(STATE_FAILED) => {
+            // Terminal: python_host::init has cached its Err, so re-running it
+            // could only fail identically. Restore the original reason, which a
+            // later call may have overwritten in LAST_ERROR.
+            let reason = INIT_FAILURE
+                .get()
+                .cloned()
+                .unwrap_or_else(|| "interpreter initialisation failed".to_string());
+            set_last_error(reason);
+            return UNITY_DLP_ERR_INIT;
+        }
+        Err(_) => return INIT_CODE.load(Ordering::Acquire),
     }
 
     logging::init();
@@ -132,7 +219,7 @@ pub extern "C" fn unity_dlp_init(
             Ok(s) => s,
             Err(_) => {
                 set_last_error("python_home is not valid UTF-8");
-                INITIALIZED.store(false, Ordering::SeqCst);
+                INIT_STATE.store(STATE_UNINIT, Ordering::Release);
                 return UNITY_DLP_ERR_INIT;
             }
         }
@@ -145,7 +232,7 @@ pub extern "C" fn unity_dlp_init(
             Ok(s) => s,
             Err(_) => {
                 set_last_error("packages_path is not valid UTF-8");
-                INITIALIZED.store(false, Ordering::SeqCst);
+                INIT_STATE.store(STATE_UNINIT, Ordering::Release);
                 return UNITY_DLP_ERR_INIT;
             }
         }
@@ -154,7 +241,8 @@ pub extern "C" fn unity_dlp_init(
     match python_host::init(python_home, packages_path) {
         Ok(None) => {
             log::info!("unity_dlp_init: library initialised");
-            INIT_CODE.store(UNITY_DLP_OK, Ordering::SeqCst);
+            INIT_CODE.store(UNITY_DLP_OK, Ordering::Relaxed);
+            INIT_STATE.store(STATE_READY, Ordering::Release);
             UNITY_DLP_OK
         }
         Ok(Some(shim_error)) => {
@@ -162,13 +250,15 @@ pub extern "C" fn unity_dlp_init(
             // stay initialised and surface the reason via last_error.
             log::error!("unity_dlp_init: JCP shim degraded: {shim_error}");
             set_last_error(shim_error);
-            INIT_CODE.store(UNITY_DLP_OK_DEGRADED, Ordering::SeqCst);
+            INIT_CODE.store(UNITY_DLP_OK_DEGRADED, Ordering::Relaxed);
+            INIT_STATE.store(STATE_READY, Ordering::Release);
             UNITY_DLP_OK_DEGRADED
         }
         Err(e) => {
             log::error!("unity_dlp_init: Python init failed: {e}");
+            let _ = INIT_FAILURE.set(e.clone());
             set_last_error(e);
-            INITIALIZED.store(false, Ordering::SeqCst);
+            INIT_STATE.store(STATE_FAILED, Ordering::Release);
             UNITY_DLP_ERR_INIT
         }
     }
@@ -180,15 +270,17 @@ pub extern "C" fn unity_dlp_init(
 /// until `unity_dlp_init` succeeds again.
 #[no_mangle]
 pub extern "C" fn unity_dlp_shutdown() -> UnityDlpResult {
-    if INITIALIZED
-        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return UNITY_DLP_OK;
-    }
+    ffi_guard(UNITY_DLP_OK, || {
+        if INIT_STATE
+            .compare_exchange(STATE_READY, STATE_UNINIT, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return UNITY_DLP_OK;
+        }
 
-    log::info!("unity_dlp_shutdown: library shut down");
-    UNITY_DLP_OK
+        log::info!("unity_dlp_shutdown: library shut down");
+        UNITY_DLP_OK
+    })
 }
 
 // ── Version ───────────────────────────────────────────────────────────────────
@@ -221,11 +313,23 @@ pub extern "C" fn unity_dlp_extract(
     out_cap: i32,
     out_len: *mut i32,
 ) -> UnityDlpResult {
+    ffi_guard(UNITY_DLP_ERR_PYTHON, || {
+        unity_dlp_extract_inner(url_utf8, opts_json_utf8, out_buf, out_cap, out_len)
+    })
+}
+
+fn unity_dlp_extract_inner(
+    url_utf8: *const c_char,
+    opts_json_utf8: *const c_char,
+    out_buf: *mut u8,
+    out_cap: i32,
+    out_len: *mut i32,
+) -> UnityDlpResult {
     if url_utf8.is_null() || out_len.is_null() {
         set_last_error("null pointer argument");
         return UNITY_DLP_ERR_INIT;
     }
-    if !INITIALIZED.load(Ordering::SeqCst) {
+    if !is_ready() {
         set_last_error("library not initialised; call unity_dlp_init first");
         return UNITY_DLP_ERR_INIT;
     }
@@ -300,6 +404,16 @@ pub extern "C" fn unity_dlp_extract(
 /// small (with `*out_len` set to the required byte count).
 #[no_mangle]
 pub extern "C" fn unity_dlp_last_error(
+    out_buf: *mut u8,
+    out_cap: i32,
+    out_len: *mut i32,
+) -> UnityDlpResult {
+    ffi_guard(UNITY_DLP_ERR_INIT, || {
+        unity_dlp_last_error_inner(out_buf, out_cap, out_len)
+    })
+}
+
+fn unity_dlp_last_error_inner(
     out_buf: *mut u8,
     out_cap: i32,
     out_len: *mut i32,
