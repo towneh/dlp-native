@@ -21,5 +21,11 @@ impl log::Log for SimpleLogger {
 static LOGGER: SimpleLogger = SimpleLogger;
 
 pub fn init() {
-    let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Debug));
+    // On Err a logger is already installed: either ours from an earlier init,
+    // in which case the level was applied then, or the host's. The global max
+    // level is deliberately left alone rather than overriding a host that
+    // configured its own.
+    if log::set_logger(&LOGGER).is_ok() {
+        log::set_max_level(LevelFilter::Debug);
+    }
 }

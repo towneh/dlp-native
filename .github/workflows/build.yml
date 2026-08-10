@@ -23,6 +23,63 @@ env:
   IOS_SUPPORT_BUILD: 'b10'
 
 jobs:
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  # rust-toolchain.toml has always installed clippy; nothing ran it. The
+  # workspace [lints] table denies undocumented unsafe blocks and truncating
+  # casts, which only bites if something enforces it.
+  lint:
+    name: rustfmt + clippy
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: lint-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: lint-cargo-
+
+      - name: Export PYO3_PYTHON
+        shell: pwsh
+        run: |
+          $found = uv python find --system ${{ env.PYTHON_REQUEST }}
+          $code = $LASTEXITCODE
+          $python = ($found -join "`n").Trim()
+          if ($code -ne 0 -or [string]::IsNullOrWhiteSpace($python)) {
+            throw "uv could not find Python ${{ env.PYTHON_REQUEST }} (exit $code)"
+          }
+          "PYO3_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: rustfmt
+        run: cargo fmt --all --check
+
+      # Both JS backends are linted and tested: they sit behind mutually
+      # exclusive features, so a default run never touches the QuickJS path that
+      # Linux, Android and iOS ship. Do not use --all-features here — it would
+      # enable both backends at once and trip their compile_error!.
+      - name: clippy (V8 backend, the default feature)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: clippy (QuickJS backend)
+        run: cargo clippy -p unity_dlp_core --all-targets --no-default-features --features js-quickjs -- -D warnings
+
+      - name: Unit tests (V8 backend)
+        run: cargo test --workspace --lib
+
+      - name: Unit tests (QuickJS backend)
+        run: cargo test -p unity_dlp_core --lib --no-default-features --features js-quickjs
+
   # ── Windows x64 ─────────────────────────────────────────────────────────────
   windows:
     name: Windows x64
@@ -53,7 +110,12 @@ jobs:
       - name: Stage Python stdlib
         shell: pwsh
         run: |
-          $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
+          $found = uv python find --system ${{ env.PYTHON_REQUEST }}
+          $code = $LASTEXITCODE
+          $python = ($found -join "`n").Trim()
+          if ($code -ne 0 -or [string]::IsNullOrWhiteSpace($python)) {
+            throw "uv could not find Python ${{ env.PYTHON_REQUEST }} (exit $code)"
+          }
           & $python "unity_package/Python~/stage_stdlib.py" windows-x86_64 --python $python
 
       - name: CLI smoke test
@@ -151,6 +213,10 @@ jobs:
       - name: Stage Python stdlib
         run: |
           PYTHON="$(uv python find --system ${{ env.PYTHON_REQUEST }})"
+          if [ -z "$PYTHON" ]; then
+            echo "uv could not find Python ${{ env.PYTHON_REQUEST }}" >&2
+            exit 1
+          fi
           "$PYTHON" "unity_package/Python~/stage_stdlib.py" linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test

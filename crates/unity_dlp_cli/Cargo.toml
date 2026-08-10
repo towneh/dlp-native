@@ -3,6 +3,7 @@ name = "unity_dlp_cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [[bin]]
 name = "unity_dlp_cli"
@@ -16,3 +17,6 @@ js-quickjs = ["unity_dlp_core/js-quickjs"]
 [dependencies]
 unity_dlp_core = { path = "../unity_dlp_core", default-features = false }
 serde_json.workspace = true
+
+[lints]
+workspace = true

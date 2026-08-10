@@ -55,8 +55,15 @@ fn parse_packages_path(packages_path: &str) -> Vec<&str> {
 /// python3.dll share `ucrtbase.dll` here (no `crt-static`), so this reaches the
 /// same `_wenviron` the interpreter reads.
 fn set_env_for_python(name: &str, value: &str) {
-    // SAFETY: called before Py_Initialize, so no Python threads exist that might
-    // race on getenv/setenv.
+    // SAFETY: `set_var` is unsound if any other thread in the *process* touches
+    // the environment concurrently — not just any other Python thread. Nothing
+    // here can enforce that, because this code runs inside a long-lived,
+    // many-threaded host (see the note above about the Unity Editor). What
+    // bounds it is the call site: this runs exactly once, from `do_init`, behind
+    // the `INIT_RESULT` OnceCell, before `Py_Initialize`, and the exported
+    // `unity_dlp_init` is documented as the first call a host may make. The
+    // residual risk is a host that mutates the environment from another thread
+    // while it is calling `unity_dlp_init`.
     unsafe { std::env::set_var(name, value) };
 
     #[cfg(windows)]
@@ -67,7 +74,10 @@ fn set_env_for_python(name: &str, value: &str) {
             fn _wputenv_s(name: *const u16, value: *const u16) -> i32;
         }
         let to_wide = |s: &str| -> Vec<u16> {
-            std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+            std::ffi::OsStr::new(s)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
         };
         let wname = to_wide(name);
         let wvalue = to_wide(value);
@@ -97,10 +107,14 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
         // Each entry may be a .zip or a directory; Python handles both.
         let segments = parse_packages_path(packages_path);
         if !segments.is_empty() {
-            let sys = py.import_bound("sys").map_err(|e| format!("import sys: {e}"))?;
-            let path = sys.getattr("path").map_err(|e| format!("sys.path get: {e}"))?;
+            let sys = py
+                .import_bound("sys")
+                .map_err(|e| format!("import sys: {e}"))?;
+            let path = sys
+                .getattr("path")
+                .map_err(|e| format!("sys.path get: {e}"))?;
             for (i, segment) in segments.iter().enumerate() {
-                path.call_method1("insert", (i as i32, *segment))
+                path.call_method1("insert", (i, *segment))
                     .map_err(|e| format!("sys.path.insert: {e}"))?;
             }
         }
@@ -122,10 +136,25 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
             "python_host: interpreter ready (home={:?} packages={:?}) — unity_dlp_jsc {}",
             python_home,
             packages_path,
-            if degraded.is_none() { "registered" } else { "FAILED (degraded)" }
+            if degraded.is_none() {
+                "registered"
+            } else {
+                "FAILED (degraded)"
+            }
         );
         Ok(degraded)
     })
+}
+
+/// Acquire the Python GIL and run `f`.
+///
+/// `init()` must succeed before calling this. Do not hold the GIL across an
+/// `.await` point — release it before any async yield.
+pub fn with_python<F, R>(f: F) -> R
+where
+    F: for<'py> FnOnce(Python<'py>) -> R,
+{
+    Python::with_gil(f)
 }
 
 #[cfg(test)]
@@ -142,7 +171,10 @@ mod tests {
 
     #[test]
     fn skips_empty_segments() {
-        assert_eq!(parse_packages_path("\na.zip\n\n\nb.zip\n"), vec!["a.zip", "b.zip"]);
+        assert_eq!(
+            parse_packages_path("\na.zip\n\n\nb.zip\n"),
+            vec!["a.zip", "b.zip"]
+        );
     }
 
     #[test]
@@ -155,15 +187,4 @@ mod tests {
         assert!(parse_packages_path("").is_empty());
         assert!(parse_packages_path("\n\n").is_empty());
     }
-}
-
-/// Acquire the Python GIL and run `f`.
-///
-/// `init()` must succeed before calling this. Do not hold the GIL across an
-/// `.await` point — release it before any async yield.
-pub fn with_python<F, R>(f: F) -> R
-where
-    F: for<'py> FnOnce(Python<'py>) -> R,
-{
-    Python::with_gil(f)
 }

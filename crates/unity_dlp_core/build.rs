@@ -1,6 +1,6 @@
 use std::env;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -19,11 +19,15 @@ fn main() {
     println!("cargo:rerun-if-changed=src/ffi.rs");
     println!(
         "cargo:rerun-if-changed={}",
-        workspace_root.join(".git/modules/vendor/yt-dlp/HEAD").display()
+        workspace_root
+            .join(".git/modules/vendor/yt-dlp/HEAD")
+            .display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        workspace_root.join(".git/modules/vendor/yt-dlp-ejs/HEAD").display()
+        workspace_root
+            .join(".git/modules/vendor/yt-dlp-ejs/HEAD")
+            .display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -33,7 +37,7 @@ fn main() {
 
 // ── cbindgen C header ─────────────────────────────────────────────────────────
 
-fn generate_header(crate_dir: &str, workspace_root: &PathBuf, out_dir: &PathBuf) {
+fn generate_header(crate_dir: &str, workspace_root: &Path, out_dir: &Path) {
     let cbindgen_toml = workspace_root.join("crates/unity_dlp_capi/cbindgen.toml");
     let config = cbindgen::Config::from_file(&cbindgen_toml).expect("cbindgen.toml not found");
 
@@ -67,8 +71,8 @@ fn bundle_zip(workspace_root: &PathBuf) {
     let zip_path = dest_dir.join("yt_dlp.zip");
     let file = std::fs::File::create(&zip_path).expect("create yt_dlp.zip");
     let mut zip = zip::ZipWriter::new(file);
-    let opts = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     // A bundle missing any of the three packages produces an interpreter that
     // aborts (or degrades) at init, so an absent source is a build failure, not a
@@ -203,7 +207,10 @@ fn find_python(workspace_root: &PathBuf) -> String {
         .output();
     if let Ok(o) = uv {
         if o.status.success() {
-            return String::from_utf8(o.stdout).unwrap_or_default().trim().to_owned();
+            return String::from_utf8(o.stdout)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
         }
     }
     "python3".to_owned()
