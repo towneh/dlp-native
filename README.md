@@ -8,11 +8,13 @@ A Unity 6.3+ native plugin that embeds CPython + yt-dlp to extract media metadat
 
 Given a URL (YouTube, Vimeo, SoundCloud, and anything else yt-dlp supports), it returns the resolved media metadata as JSON — stream URLs, title, duration, thumbnails, formats. No subprocess is spawned; the Python interpreter and yt-dlp run in-process inside the native plugin.
 
-YouTube's JS signature challenges are solved via an in-process JS engine: V8 (via [rustyscript](https://github.com/nicholasgasior/rustyscript)) on Windows/macOS, [QuickJS](https://github.com/DelSkayn/rquickjs) on Linux/iOS.
+YouTube's JS signature challenges are solved via an in-process JS engine: V8 (via [rustyscript](https://github.com/rscarson/rustyscript)) on Windows/macOS, [QuickJS](https://github.com/DelSkayn/rquickjs) on Linux, Android and iOS.
 
-## Getting started
+## Quick start
 
-The easiest way to get the plugin files — no Rust or Python toolchain, no GitHub auth — is to grab a release. The latest is [**v0.2.1**](https://github.com/towneh/dlp-native/releases/tag/v0.2.1) (browse [all releases](https://github.com/towneh/dlp-native/releases)). Download the zip for your platform and extract its `Plugins/` and `StreamingAssets/` into `unity_package/`:
+### 1. Get the binaries
+
+The native binary and Python bundle are not in the repo — grab them from a release. No Rust or Python toolchain needed, and no GitHub auth. Download the zip for your platform from the [latest release](https://github.com/towneh/dlp-native/releases/latest) and extract its `Plugins/` and `StreamingAssets/` folders into this repo's `unity_package/`:
 
 | Asset | Platform |
 |-------|----------|
@@ -22,42 +24,115 @@ The easiest way to get the plugin files — no Rust or Python toolchain, no GitH
 | `unity_dlp-android-arm64.zip` | Android arm64-v8a |
 | `unity_dlp-ios-arm64.zip` | iOS arm64 |
 
-Each asset carries that platform's native binary and the Python bundle; the C# scripts come with the package source itself.
+The C# scripts come with the package source itself, so a release only fills in the parts that have to be compiled.
 
-### Latest CI build
+Prefer a build newer than the last release? Fetch the latest CI artifacts instead — this needs the [GitHub CLI](https://cli.github.com/) authenticated to this repo (`gh auth login`):
 
-To pull a build newer than the last release, fetch the latest CI artifacts instead. This needs the [GitHub CLI](https://cli.github.com/) authenticated to this repo (`gh auth login`):
-
-**Windows:**
 ```powershell
-pwsh scripts/fetch-artifacts.ps1 windows
+pwsh scripts/fetch-artifacts.ps1 windows     # Windows
 ```
-
-**macOS:**
 ```bash
-bash scripts/fetch-artifacts.sh macos
+bash scripts/fetch-artifacts.sh macos        # macOS
+bash scripts/fetch-artifacts.sh linux        # Linux
 ```
 
-**Linux:**
-```bash
-bash scripts/fetch-artifacts.sh linux
+Pass several platform names at once (e.g. `windows android`), or omit them all to fetch every platform. Files land directly in `unity_package/`.
+
+To build the binary yourself instead, see [Building](#building).
+
+### 2. Add the package to your project
+
+`unity_package/` is a UPM package (`com.yewnyx.ytdlp`). Add it through **Window → Package Manager → + → Add package from disk**, pointing at `unity_package/package.json`, or add the path to your project's `Packages/manifest.json`:
+
+```json
+"com.yewnyx.ytdlp": "file:C:/path/to/dlp-native/unity_package"
 ```
 
-Pass multiple platform names to fetch several at once (e.g. `windows android`), or omit all arguments to fetch every platform. The files are placed directly into `unity_package/`.
+Use an absolute path. Unity resolves relative `file:` entries inconsistently, and a wrong one fails at import with little explanation.
 
-To build from source instead, see [Building](#building).
+It depends on `com.unity.nuget.newtonsoft-json` (3.2.1), which Package Manager will pull in for you.
+
+### 3. Call it
+
+Initialise once, then extract. Both are awaitable and the native work happens on a dedicated worker thread, so neither blocks your frame:
+
+```csharp
+using UnityEngine;
+using YtDlp;
+
+public class Example : MonoBehaviour
+{
+    private async void Start()
+    {
+        // Unpacks the Python bundle on first run, then starts the interpreter.
+        await DlpBootstrap.EnsureInitAsync();
+
+        var info = await YtDlpApi.ExtractAsync("https://vimeo.com/76979871");
+
+        Debug.Log($"{info.Title} ({info.Duration}s)");
+        foreach (var f in info.Formats)
+            Debug.Log($"{f.FormatId}  {f.Width}x{f.Height}  {f.Ext}  {f.Url}");
+    }
+}
+```
+
+`ExtractAsync` optionally takes an `ExtractOptions` to pick a format (`Format`, `FormatSort`, `GeoBypassCountry`). The result is the sanitised yt-dlp `info_dict`: `VideoInfo` exposes the common fields (`Title`, `Duration`, `Thumbnail`, `Uploader`, `IsLive`, `Chapters`, `Formats`, …), and each `Format` carries `Url`, `Ext`, `Width`, `Height`, codecs and bitrates.
+
+There is a runnable version of this in the **Player Test** sample (Package Manager → Samples → Import). It is an `OnGUI` MonoBehaviour, so it needs no canvas setup, and it is the quickest way to confirm init and extraction work on a device.
+
+## Limits and failure modes
+
+Extraction is deliberately bounded — a media URL can come from anywhere, and the plugin runs in-process with no sandbox, so a hostile or merely slow page must not be able to wedge the host. The ceilings:
+
+| Bound | Value | What happens when it's hit |
+|-------|-------|---------------------------|
+| JS execution | 5 s, 256 MB heap (64 MB on mobile) | The script is terminated; surfaces as a JavaScript error |
+| Extraction deadline | 15 s, hard-stopped at 20 s | `TimeoutException` |
+| Result size | 64 MB, 16 MB on Android/iOS | `YtDlpException` — "Result too large" |
+| Concurrent extractions | 4 | `YtDlpException` — "Extractor busy" |
+
+Failures arrive as typed exceptions:
+
+- `TimeoutException` — the page took too long. Retrying may work; the same URL failing repeatedly will not.
+- `YtDlpException` — extraction failed. `NativeCode` carries the underlying status and `IsRetryable` is true only for the busy case, so you can back off and retry without parsing message text.
+- `InvalidOperationException` — the library was not initialised, or a buffer could not be sized.
+
+The concurrency cap is unreachable through the C# wrapper, which funnels every native call through a single worker thread on purpose: CPython pins its interpreter and GIL to whichever thread started it. The cap exists for anything else calling the C ABI directly.
 
 ## Platform status
 
 | Platform | Status | Notes |
 |----------|--------|-------|
 | Windows x86_64 | ✅ Working | V8 (rustyscript) |
-| macOS universal | ✅ Working | arm64 + x86_64, lipo'd, V8 (rustyscript) |
+| macOS universal | ✅ Working | arm64 + x86_64 merged into one binary (`lipo`), V8 (rustyscript) |
 | Linux x86_64 | ✅ Working | QuickJS (rquickjs) |
 | Android arm64-v8a | 🔧 In progress | QuickJS (rquickjs), libpython via Termux .deb |
-| iOS arm64 | ✅ Working | QuickJS (rquickjs), xcframework (device + arm64 simulator), iOS 16.0+ |
+| iOS arm64 | ✅ Working | QuickJS (rquickjs), packaged as an `.xcframework` covering device + simulator, iOS 16.0+ |
+
+## Keeping yt-dlp current
+
+yt-dlp ages fastest — YouTube changes its player JS and formats often, while the embedded CPython and the native ABI rarely move. So the bundled yt-dlp refreshes itself at runtime rather than waiting for a plugin rebuild.
+
+In short: after init, the plugin checks PyPI for a newer yt-dlp and stages it for the next launch. It is on by default. Set `DlpBootstrap.AutoUpdate = false` before the first init call to pin to the bundled version.
+
+<details>
+<summary>How the update actually works</summary>
+
+`DlpBootstrap` kicks off `DlpUpdater` after init — fire-and-forget, on by default via `DlpBootstrap.AutoUpdate`. A newer release is downloaded, sha256-verified against the PyPI digest, and checked for compatibility with the embedded interpreter's Python version and the bundled `yt-dlp-ejs` before being staged. The running interpreter keeps the package it booted with, because re-initialising it is not safe.
+
+On the next launch both the staged update and the bundled zip are placed on Python's import path, the update first: `yt_dlp` resolves from the update, while `yt_dlp_ejs` and the `unity_dlp_jsc` shim — neither of which a PyPI package carries — resolve from the bundle behind it. Anything wrong with the staged update (missing, hash mismatch, incompatible Python or ejs version, or not a yt-dlp package at all) falls back to the bundle alone, and the check never throws.
+
+What this does not cover:
+
+- The Python standard library is tied to the embedded interpreter and only changes on a plugin rebuild.
+- Compiled extensions (e.g. `curl_cffi`) can't ship as a zip and stay with the build.
+- iOS is pinned to the bundled package — the App Store forbids downloading and running new code at runtime, so it refreshes via an app update.
+
+</details>
 
 ## Building
+
+Only needed if you want to build the native binary yourself; releases and CI artifacts cover the usual case.
 
 **Windows (PowerShell):**
 ```powershell
@@ -101,22 +176,6 @@ Unity C# (DlpBootstrap.cs + YtDlp.cs)
                                        ├── js-v8: rustyscript → V8  (Windows, macOS)
                                        └── js-quickjs: rquickjs → QuickJS  (Linux, Android, iOS)
 ```
-
-## Keeping yt-dlp current
-
-yt-dlp ages fastest — YouTube changes its player JS and formats often, while the embedded CPython and the native ABI rarely move. So the bundled yt-dlp can refresh itself at runtime rather than waiting for a plugin rebuild.
-
-After init, `DlpBootstrap` checks PyPI for a newer yt-dlp (`DlpUpdater`, fire-and-forget, on by default via `DlpBootstrap.AutoUpdate`). A newer release is downloaded, sha256-verified against the PyPI digest, and checked for compatibility with the embedded interpreter's Python version and the bundled `yt-dlp-ejs` before being staged for the next launch — the running interpreter keeps the package it booted with, since re-init isn't safe.
-
-On the next launch the staged wheel and the bundled zip are both placed on `sys.path`, staged wheel first: `yt_dlp` resolves from the update, while `yt_dlp_ejs` and the `unity_dlp_jsc` shim — neither of which a PyPI wheel carries — resolve from the bundle behind it. Anything wrong with the staged wheel (missing, hash mismatch, incompatible Python/ejs version, or not a yt-dlp wheel) falls back to the bundle alone, and the check never throws.
-
-What this does not cover:
-
-- The Python stdlib is tied to the embedded interpreter and only changes on a plugin rebuild.
-- Compiled extensions (e.g. `curl_cffi`) can't ship as a zip and stay with the build.
-- iOS is pinned to the bundled package — the App Store forbids downloading and running new code at runtime, so it refreshes via an app update.
-
-Set `DlpBootstrap.AutoUpdate = false` before the first init call to pin to the bundled package.
 
 ## Scope
 
