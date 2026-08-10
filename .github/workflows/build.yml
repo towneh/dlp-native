@@ -36,6 +36,18 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
+
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
@@ -90,6 +102,18 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
+
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
@@ -138,6 +162,18 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
 
       # actions/setup-python on macos-latest installs a universal2 build, which
       # PyO3 can use for both the native arm64 and the x86_64 cross-compile.
@@ -193,6 +229,18 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
+
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
@@ -240,6 +288,18 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
 
       - name: Install Rust Android target
         run: rustup target add aarch64-linux-android
@@ -346,6 +406,18 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      # Submodules are cloned shallow, which brings neither tags nor history.
+      # The bundled yt-dlp-ejs version is read from its tag, and resolving a pin
+      # made after a release needs to walk back to that tag, so restore both.
+      - name: Fetch yt-dlp-ejs tags and history
+        shell: bash
+        run: |
+          git -C vendor/yt-dlp-ejs fetch --tags --force --quiet
+          # --unshallow errors on a complete clone, so ask first.
+          if [ "$(git -C vendor/yt-dlp-ejs rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/yt-dlp-ejs fetch --unshallow --quiet
+          fi
 
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
