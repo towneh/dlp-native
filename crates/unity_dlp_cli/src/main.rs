@@ -36,7 +36,8 @@ fn main() {
             let home_c = CString::new(python_home).expect("DLP_PYTHON_HOME contains NUL");
             let pkgs_c = CString::new(packages_path).expect("DLP_PACKAGES_PATH contains NUL");
 
-            let rc = unity_dlp_init(home_c.as_ptr(), pkgs_c.as_ptr());
+            // SAFETY: both pointers come from CStrings that outlive the call.
+            let rc = unsafe { unity_dlp_init(home_c.as_ptr(), pkgs_c.as_ptr()) };
             if rc != UNITY_DLP_OK && rc != UNITY_DLP_OK_DEGRADED {
                 eprintln!("init failed: {rc}");
                 std::process::exit(1);
@@ -52,36 +53,48 @@ fn main() {
             let mut buf = vec![0u8; 8 << 20];
             let mut out_len: i32 = 0;
 
-            let mut rc = unity_dlp_extract(
-                url_c.as_ptr(),
-                std::ptr::null(),
-                buf.as_mut_ptr(),
-                buf.len() as i32,
-                &mut out_len,
-            );
+            // SAFETY: url_c outlives the call, buf holds buf.len() writable
+            // bytes, and out_len points to a live i32.
+            let mut rc = unsafe {
+                unity_dlp_extract(
+                    url_c.as_ptr(),
+                    std::ptr::null(),
+                    buf.as_mut_ptr(),
+                    buf.len() as i32,
+                    &mut out_len,
+                )
+            };
 
             if rc == UNITY_DLP_ERR_BUF {
                 // Clamp before widening: a negative length would wrap to a huge
                 // usize and abort the process in resize.
                 let needed = out_len.max(0) as usize;
                 buf.resize(needed.max(buf.len() * 2), 0);
-                rc = unity_dlp_extract(
-                    url_c.as_ptr(),
-                    std::ptr::null(),
-                    buf.as_mut_ptr(),
-                    buf.len() as i32,
-                    &mut out_len,
-                );
+                // SAFETY: as above; buf was just resized, so buf.len() still
+                // describes the live allocation.
+                rc = unsafe {
+                    unity_dlp_extract(
+                        url_c.as_ptr(),
+                        std::ptr::null(),
+                        buf.as_mut_ptr(),
+                        buf.len() as i32,
+                        &mut out_len,
+                    )
+                };
             }
 
             if rc != UNITY_DLP_OK {
                 let mut err_buf = vec![0u8; 4096];
                 let mut err_len: i32 = 0;
-                let err_rc = unity_dlp_last_error(
-                    err_buf.as_mut_ptr(),
-                    err_buf.len() as i32,
-                    &mut err_len,
-                );
+                // SAFETY: err_buf holds err_buf.len() writable bytes and
+                // err_len points to a live i32.
+                let err_rc = unsafe {
+                    unity_dlp_last_error(
+                        err_buf.as_mut_ptr(),
+                        err_buf.len() as i32,
+                        &mut err_len,
+                    )
+                };
                 // On anything but OK, out_len carries the *required* length
                 // rather than what was written, so it must not be used to slice
                 // this buffer. Clamp regardless, so the slice is bounded by what

@@ -181,15 +181,23 @@ fn panic_detail(payload: &(dyn std::any::Any + Send)) -> String {
 /// shim did not register (see that constant). Safe to call from multiple threads
 /// — only the first call runs initialisation; subsequent calls echo the first
 /// call's result code.
+///
+/// # Safety
+///
+/// Each of `python_home_utf8` and `packages_path_utf8` must be either null or a
+/// pointer to a NUL-terminated C string that stays valid and unmodified for the
+/// duration of the call.
 #[no_mangle]
-pub extern "C" fn unity_dlp_init(
+pub unsafe extern "C" fn unity_dlp_init(
     python_home_utf8: *const c_char,
     packages_path_utf8: *const c_char,
 ) -> UnityDlpResult {
-    ffi_guard(UNITY_DLP_ERR_INIT, || unity_dlp_init_inner(python_home_utf8, packages_path_utf8))
+    ffi_guard(UNITY_DLP_ERR_INIT, || unsafe {
+        unity_dlp_init_inner(python_home_utf8, packages_path_utf8)
+    })
 }
 
-fn unity_dlp_init_inner(
+unsafe fn unity_dlp_init_inner(
     python_home_utf8: *const c_char,
     packages_path_utf8: *const c_char,
 ) -> UnityDlpResult {
@@ -316,20 +324,28 @@ pub extern "C" fn unity_dlp_version() -> *const c_char {
 ///
 /// Call this on a worker thread — it blocks on network I/O. The C# wrapper
 /// already uses `Task.Run` for this purpose.
+///
+/// # Safety
+///
+/// `url_utf8` must point to a NUL-terminated C string, and `opts_json_utf8`
+/// must be null or point to one; both must stay valid for the duration of the
+/// call. `out_len` must point to a writable `i32`. `out_buf` must be null, or
+/// point to at least `out_cap` writable bytes. `out_cap` must not overstate the
+/// allocation behind `out_buf`.
 #[no_mangle]
-pub extern "C" fn unity_dlp_extract(
+pub unsafe extern "C" fn unity_dlp_extract(
     url_utf8: *const c_char,
     opts_json_utf8: *const c_char,
     out_buf: *mut u8,
     out_cap: i32,
     out_len: *mut i32,
 ) -> UnityDlpResult {
-    ffi_guard(UNITY_DLP_ERR_PYTHON, || {
+    ffi_guard(UNITY_DLP_ERR_PYTHON, || unsafe {
         unity_dlp_extract_inner(url_utf8, opts_json_utf8, out_buf, out_cap, out_len)
     })
 }
 
-fn unity_dlp_extract_inner(
+unsafe fn unity_dlp_extract_inner(
     url_utf8: *const c_char,
     opts_json_utf8: *const c_char,
     out_buf: *mut u8,
@@ -413,18 +429,24 @@ fn unity_dlp_extract_inner(
 ///
 /// Returns UNITY_DLP_OK on success, UNITY_DLP_ERR_BUF if the buffer is too
 /// small (with `*out_len` set to the required byte count).
+///
+/// # Safety
+///
+/// `out_len` must point to a writable `i32`. `out_buf` must be null, or point
+/// to at least `out_cap` writable bytes, and `out_cap` must not overstate the
+/// allocation behind it.
 #[no_mangle]
-pub extern "C" fn unity_dlp_last_error(
+pub unsafe extern "C" fn unity_dlp_last_error(
     out_buf: *mut u8,
     out_cap: i32,
     out_len: *mut i32,
 ) -> UnityDlpResult {
-    ffi_guard(UNITY_DLP_ERR_INIT, || {
+    ffi_guard(UNITY_DLP_ERR_INIT, || unsafe {
         unity_dlp_last_error_inner(out_buf, out_cap, out_len)
     })
 }
 
-fn unity_dlp_last_error_inner(
+unsafe fn unity_dlp_last_error_inner(
     out_buf: *mut u8,
     out_cap: i32,
     out_len: *mut i32,
