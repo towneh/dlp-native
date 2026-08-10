@@ -440,14 +440,26 @@ jobs:
 
       - name: Stage artifact
         run: |
-          mkdir -p unity_package/Plugins/Android/libs/arm64-v8a
-          cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so \
-            unity_package/Plugins/Android/libs/arm64-v8a/
+          set -euo pipefail
+          DEST=unity_package/Plugins/Android/libs/arm64-v8a
+          mkdir -p "$DEST"
+          cp target/aarch64-linux-android/release-with-debuginfo/libunity_dlp.so "$DEST/"
+          # Under each library's own SONAME, because that is the name its dependents
+          # record in NEEDED and therefore the only name the loader will look for.
+          # Termux ships these unversioned today, so this is about surviving the day
+          # it ships libpython3.14.so.1.0 instead.
           LIBPY="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libpython3.*.so*' \
             | sort -V | tail -1)"
-          cp -L "$LIBPY" unity_package/Plugins/Android/libs/arm64-v8a/
-          cp -L "$TERMUX_PREFIX/lib/libandroid-support.so" \
-            unity_package/Plugins/Android/libs/arm64-v8a/
+          LIBSUPPORT="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libandroid-support.so*' \
+            | sort -V | tail -1)"
+          for src in "$LIBPY" "$LIBSUPPORT"; do
+            soname="$(readelf -d "$src" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')"
+            # libandroid-support declares no SONAME. A library without one is
+            # recorded by its dependents under the filename they linked against,
+            # so that filename is the name to stage it under.
+            [ -n "$soname" ] || soname="$(basename "$src")"
+            cp -L "$src" "$DEST/$soname"
+          done
 
       # A library that is needed but never staged does not fail anything here — it
       # fails at dlopen on the device, reported against whichever library depends on
@@ -462,9 +474,23 @@ jobs:
             echo "::error::readelf is not installed, so this check cannot run"
             exit 1
           }
-          platform='^(libc|libm|libdl|liblog|libandroid|libz|libc\+\+_shared|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
+          # Only libraries Android itself provides. libc++_shared is deliberately
+          # absent: it is an NDK runtime, so anything needing it has to be staged
+          # here rather than borrowed from whatever else the host application ships.
+          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
           rc=0
-          for so in *.so; do
+          # *.so* rather than *.so, so a version-suffixed name is examined here
+          # instead of being skipped by the very check meant to reject it.
+          for so in *.so*; do
+            # The loader resolves NEEDED entries by exact filename, and a name
+            # carrying a version suffix would not match the staged file.
+            case "$so" in
+              lib*.so) ;;
+              *)
+                echo "::error::$so is not named lib<name>.so, so nothing depending on it can resolve it"
+                rc=1
+                ;;
+            esac
             dyn="$(readelf -d "$so")" || {
               echo "::error::readelf could not read $so"
               exit 1
@@ -487,9 +513,7 @@ jobs:
         with:
           name: unity_dlp-android-arm64
           path: |
-            unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
-            unity_package/Plugins/Android/libs/arm64-v8a/libpython*.so*
-            unity_package/Plugins/Android/libs/arm64-v8a/libandroid-support.so
+            unity_package/Plugins/Android/libs/arm64-v8a/
             unity_package/StreamingAssets/dlp/
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────
