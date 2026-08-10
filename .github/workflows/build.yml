@@ -384,6 +384,41 @@ jobs:
             exit 1
           fi
 
+          # A signature says the index is authentic, not that it is current. Without
+          # an age bound an old index, the package list it vouches for and the
+          # packages themselves can be served together, and every check here passes
+          # while an outdated interpreter is built. Termux publishes no Valid-Until,
+          # so the bound comes from the signed Date; the field is honoured anyway in
+          # case that changes.
+          MAX_AGE_DAYS=7
+          now="$(date -u +%s)"
+
+          expires="$(sed -n 's/^Valid-Until: //p' /tmp/termux-release | head -1)"
+          if [ -n "$expires" ]; then
+            expires_epoch="$(date -u -d "$expires" +%s 2>/dev/null || true)"
+            if [ -z "$expires_epoch" ]; then
+              echo "::error::could not read Valid-Until from the signed index: $expires"
+              exit 1
+            fi
+            if [ "$expires_epoch" -lt "$now" ]; then
+              echo "::error::the signed index expired at $expires"
+              exit 1
+            fi
+          fi
+
+          released="$(sed -n 's/^Date: //p' /tmp/termux-release | head -1)"
+          released_epoch="$(date -u -d "$released" +%s 2>/dev/null || true)"
+          if [ -z "$released_epoch" ]; then
+            echo "::error::the signed index carries no readable Date, so its age cannot be bounded"
+            exit 1
+          fi
+          age_days=$(( (now - released_epoch) / 86400 ))
+          if [ "$age_days" -gt "$MAX_AGE_DAYS" ]; then
+            echo "::error::the signed index is ${age_days} days old, over the ${MAX_AGE_DAYS} day limit. Either the repository has stopped publishing or an old index is being replayed; confirm which before raising the limit."
+            exit 1
+          fi
+          echo "==> index dated $released (${age_days}d old)"
+
           curl -fsSL "$DIST/main/binary-aarch64/Packages" -o /tmp/termux-packages
           WANT="$(awk '/^SHA256:/ { s = 1; next } /^[A-Za-z]/ { s = 0 }
             s && $3 == "main/binary-aarch64/Packages" { print $1; exit }' /tmp/termux-release)"
