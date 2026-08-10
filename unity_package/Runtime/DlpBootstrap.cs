@@ -100,14 +100,21 @@ namespace YtDlp
         // Shared extraction path used by both editor and runtime.
         private static async Task<DlpPaths> PrepareFromDirAsync(string srcDlpDir)
         {
-            var baseDir    = Path.Combine(PersistentDataPath, "dlp", DlpVersion);
+            // The interpreter's minor version is part of the cache key. A CPython bump
+            // replaces the stdlib wholesale, and an extraction from the previous one
+            // survives Py_Initialize only to fail at the first `import re` with
+            // "SRE module mismatch", because _sre is compiled into the runtime while
+            // re/_constants.py comes from the extracted tree. Keying on it means the
+            // cache invalidates itself instead of depending on DlpVersion also moving.
+            var cacheKey   = $"{DlpVersion}-py{DlpUpdater.EmbeddedPython}";
+            var baseDir    = Path.Combine(PersistentDataPath, "dlp", cacheKey);
             var markerPath = Path.Combine(baseDir, ".ready");
 
             if (!File.Exists(markerPath))
             {
                 await ExtractStdlibAsync(srcDlpDir, baseDir).ConfigureAwait(false);
                 await CopyPackagesAsync(srcDlpDir, baseDir).ConfigureAwait(false);
-                File.WriteAllText(markerPath, DlpVersion);
+                File.WriteAllText(markerPath, cacheKey);
             }
 
             return new DlpPaths(

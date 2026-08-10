@@ -54,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
-          & $python scripts/stage_stdlib.py windows-x86_64 --python $python
+          & $python "unity_package/Python~/stage_stdlib.py" windows-x86_64 --python $python
 
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
@@ -107,7 +107,7 @@ jobs:
 
       - name: Stage Python stdlib
         run: |
-          "$PYO3_PYTHON" scripts/stage_stdlib.py macos-universal --python "$PYO3_PYTHON"
+          "$PYO3_PYTHON" "unity_package/Python~/stage_stdlib.py" macos-universal --python "$PYO3_PYTHON"
 
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
@@ -151,7 +151,7 @@ jobs:
       - name: Stage Python stdlib
         run: |
           PYTHON="$(uv python find --system ${{ env.PYTHON_REQUEST }})"
-          "$PYTHON" scripts/stage_stdlib.py linux-x86_64 --python "$PYTHON"
+          "$PYTHON" "unity_package/Python~/stage_stdlib.py" linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo --no-default-features --features js-quickjs -- version
@@ -249,7 +249,7 @@ jobs:
 
       - name: Stage Python stdlib
         run: |
-          python3 scripts/stage_stdlib.py android-arm64-v8a --prefix "$TERMUX_PREFIX"
+          python3 "unity_package/Python~/stage_stdlib.py" android-arm64-v8a --prefix "$TERMUX_PREFIX"
 
       - name: Stage artifact
         run: |
@@ -336,6 +336,11 @@ jobs:
           key: ios-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ios-cargo-
 
+      # No BINDGEN_EXTRA_CLANG_ARGS here, unlike the simulator step below. bindgen
+      # derives its clang target from cargo's TARGET, and rust_to_clang_target maps
+      # aarch64-apple-ios to arm64-apple-ios, which is what clang wants. SDKROOT
+      # supplies the sysroot. The simulator needs the override because that mapping
+      # yields arm64-apple-ios-sim, and clang only accepts -simulator.
       - name: Build iOS device (arm64)
         run: |
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -359,7 +364,7 @@ jobs:
           # the stdlib comes from the macOS host Python installed above.
           # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
           # extensions are compiled into libpythonX.Y.a by python-apple-support).
-          python3 scripts/stage_stdlib.py ios-arm64 \
+          python3 "unity_package/Python~/stage_stdlib.py" ios-arm64 \
             --exclude-dirs lib-dynload
 
       - name: Stage artifact

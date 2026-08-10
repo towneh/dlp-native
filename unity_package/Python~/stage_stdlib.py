@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-Stage a Python stdlib zip into unity_package/StreamingAssets/dlp/stdlib/.
+Stage a Python stdlib zip into the package's StreamingAssets/dlp/stdlib/.
+
+Lives inside the Unity package rather than under scripts/ because
+DlpBuildPreprocessor runs it during player builds, and a consumer who installed
+the package only has unity_package/ on disk. The trailing ~ stops Unity
+importing the directory as assets. CI runs this same file, so the player build
+and the CI build share one implementation instead of drifting apart.
 
 Usage:
-  python3 scripts/stage_stdlib.py PLATFORM [--python PYTHON_EXE]
-                                            [--prefix PREFIX_DIR]
-                                            [--bases BASE [BASE ...]]
+  python3 unity_package/Python~/stage_stdlib.py PLATFORM [--python PYTHON_EXE]
+                                                         [--prefix PREFIX_DIR]
+                                                         [--bases BASE ...]
 
 PLATFORM    Target identifier, e.g.:
               windows-x86_64  macos-universal  linux-x86_64
@@ -25,8 +31,17 @@ PLATFORM    Target identifier, e.g.:
 --exclude-dirs
             Extra directory names to skip, on top of ALWAYS_EXCLUDE below.
 
+--out-dir   Directory to write <platform>.zip into. Defaults to
+            DEFAULT_OUT_DIR, which is anchored to this file rather than the
+            working directory, so the script can be run from anywhere.
+            DlpBuildPreprocessor passes it explicitly.
+
 The zip is stored uncompressed (ZIP_STORED) so the OS can page individual
 files directly after extraction rather than decompressing everything upfront.
+
+Staging nothing is treated as a failure: an empty archive still satisfies the
+"already staged, skip it" check in DlpBuildPreprocessor, so it would quietly
+persist into a player build.
 """
 
 import argparse
@@ -57,6 +72,12 @@ ALWAYS_EXCLUDE = frozenset(
 # lib/ entries the POSIX base auto-detection will consider.
 _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
+# Anchored to this file, not the working directory, so the destination does not
+# depend on where the script was invoked from. This file sits at
+# <package>/Python~/, so two levels up is the package root.
+_PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_OUT_DIR = os.path.join(_PACKAGE_ROOT, "StreamingAssets", "dlp", "stdlib")
+
 
 def main():
     p = argparse.ArgumentParser(
@@ -74,6 +95,12 @@ def main():
         metavar="DIR",
         default=[],
         help="Extra directory names to skip, on top of the built-in list",
+    )
+    p.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        default=DEFAULT_OUT_DIR,
+        help="Where to write <platform>.zip (default: the repo's staged stdlib dir)",
     )
     args = p.parse_args()
 
@@ -106,7 +133,7 @@ def main():
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
         bases = [os.path.join("lib", max(py_dirs)[1])]
 
-    out = os.path.join("unity_package", "StreamingAssets", "dlp", "stdlib", args.platform + ".zip")
+    out = os.path.join(args.out_dir, args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
@@ -125,6 +152,12 @@ def main():
                     arc = os.path.relpath(full, prefix).replace(os.sep, "/")
                     z.write(full, arc)
                     total += 1
+
+    if total == 0:
+        # Leaving the empty archive behind would satisfy the "already staged"
+        # check in DlpBuildPreprocessor and ship a stdlib-less zip.
+        os.remove(out)
+        sys.exit(f"ERROR: staged nothing from {prefix!r} (bases: {bases})")
 
     size_mb = os.path.getsize(out) / 1_048_576
     print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
