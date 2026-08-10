@@ -366,23 +366,15 @@ fn unity_dlp_extract_inner(
             let message = e.message();
             log::error!("unity_dlp_extract: {message}");
             set_last_error(message);
-            let code = match &e {
+            // The variant was decided from the raised exception's class, so the
+            // code no longer depends on text the caller can influence.
+            return match &e {
                 extract::ExtractError::Timeout(_) => UNITY_DLP_ERR_TIMEOUT,
                 extract::ExtractError::Busy(_) => UNITY_DLP_ERR_BUSY,
-                // Classify the error so C# can give a typed exception.
-                extract::ExtractError::Python(m) => {
-                    if m.contains("URLError")
-                        || m.contains("ConnectionError")
-                        || m.contains("HTTP Error")
-                        || m.contains("Network")
-                    {
-                        UNITY_DLP_ERR_NET
-                    } else {
-                        UNITY_DLP_ERR_PYTHON
-                    }
-                }
+                extract::ExtractError::Network(_) => UNITY_DLP_ERR_NET,
+                extract::ExtractError::Js(_) => UNITY_DLP_ERR_JS,
+                extract::ExtractError::Python(_) => UNITY_DLP_ERR_PYTHON,
             };
-            return code;
         }
     };
 

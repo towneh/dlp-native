@@ -37,9 +37,14 @@ static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 /// where the failure is still structured, rather than by inspecting rendered
 /// text further up.
 pub enum ExtractError {
-    /// yt-dlp or the interpreter raised.
+    /// yt-dlp or the interpreter raised something not covered below.
     Python(String),
-    /// The deadline expired and the worker was abandoned.
+    /// The failure was an `OSError` — `URLError`, `ConnectionError`,
+    /// `HTTPError` and `socket` failures all derive from it.
+    Network(String),
+    /// The embedded JS engine failed.
+    Js(String),
+    /// The deadline expired, or Python raised `TimeoutError`.
     Timeout(String),
     /// Too many extractions already in flight.
     Busy(String),
@@ -48,8 +53,30 @@ pub enum ExtractError {
 impl ExtractError {
     pub fn message(&self) -> &str {
         match self {
-            Self::Python(m) | Self::Timeout(m) | Self::Busy(m) => m,
+            Self::Python(m) | Self::Network(m) | Self::Js(m) | Self::Timeout(m) | Self::Busy(m) => m,
         }
+    }
+}
+
+/// Classify a raised exception by type.
+///
+/// The rendered text of an exception embeds the caller's URL and remote
+/// response bodies, so it is not something to branch on — a URL containing the
+/// word "Network" would otherwise select the result code. The exception class
+/// is not attacker-controlled in the same way.
+fn classify(py: Python<'_>, err: &PyErr) -> fn(String) -> ExtractError {
+    use pyo3::exceptions::{PyOSError, PyTimeoutError};
+
+    // TimeoutError derives from OSError, so it has to be tested first or every
+    // timeout would be reported as a network failure.
+    if err.is_instance_of::<crate::jsc_provider::JsError>(py) {
+        ExtractError::Js
+    } else if err.is_instance_of::<PyTimeoutError>(py) {
+        ExtractError::Timeout
+    } else if err.is_instance_of::<PyOSError>(py) {
+        ExtractError::Network
+    } else {
+        ExtractError::Python
     }
 }
 
@@ -122,7 +149,7 @@ pub fn extract(url: &str, opts_json: Option<&str>) -> Result<String, ExtractErro
         .map_err(|e| ExtractError::Python(format!("could not start extraction thread: {e}")))?;
 
     match rx.recv_timeout(EXTRACT_DEADLINE) {
-        Ok(result) => result.map_err(ExtractError::Python),
+        Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Timeout) => Err(ExtractError::Timeout(format!(
             "extraction exceeded {}s and was abandoned",
             EXTRACT_DEADLINE.as_secs()
@@ -133,24 +160,30 @@ pub fn extract(url: &str, opts_json: Option<&str>) -> Result<String, ExtractErro
     }
 }
 
-fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<String, String> {
+fn run_extract(
+    py: Python<'_>,
+    url: &str,
+    opts_json: Option<&str>,
+) -> Result<String, ExtractError> {
     let locals = PyDict::new_bound(py);
     locals
         .set_item("_url", url)
-        .map_err(|e| format!("set _url: {e}"))?;
+        .map_err(|e| ExtractError::Python(format!("set _url: {e}")))?;
     locals
         .set_item("_opts_json", opts_json)
-        .map_err(|e| format!("set _opts_json: {e}"))?;
+        .map_err(|e| ExtractError::Python(format!("set _opts_json: {e}")))?;
 
-    py.run_bound(EXTRACT_PY, None, Some(&locals))
-        .map_err(|e| format!("yt-dlp extraction failed: {e}"))?;
+    py.run_bound(EXTRACT_PY, None, Some(&locals)).map_err(|e| {
+        let variant = classify(py, &e);
+        variant(format!("yt-dlp extraction failed: {e}"))
+    })?;
 
     locals
         .get_item("_result")
-        .map_err(|e| format!("read _result: {e}"))?
-        .ok_or_else(|| "extraction produced no result".to_string())?
+        .map_err(|e| ExtractError::Python(format!("read _result: {e}")))?
+        .ok_or_else(|| ExtractError::Python("extraction produced no result".to_string()))?
         .extract::<String>()
-        .map_err(|e| format!("_result is not a string: {e}"))
+        .map_err(|e| ExtractError::Python(format!("_result is not a string: {e}")))
 }
 
 // The Python snippet run for each extraction. Uses `exec` semantics (no return value);

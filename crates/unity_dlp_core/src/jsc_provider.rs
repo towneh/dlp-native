@@ -136,6 +136,13 @@ fn run_js_inner(src: &str) -> Result<String, String> {
 
 // ── PyO3 surface ──────────────────────────────────────────────────────────────
 
+pyo3::create_exception!(
+    unity_dlp_js,
+    JsError,
+    pyo3::exceptions::PyRuntimeError,
+    "Raised when the embedded JS engine fails to evaluate a script."
+);
+
 #[pyfunction]
 #[pyo3(name = "run_js")]
 fn py_run_js(py: Python<'_>, script: String) -> PyResult<String> {
@@ -143,8 +150,11 @@ fn py_run_js(py: Python<'_>, script: String) -> PyResult<String> {
     // duration of the call. Holding it here would mean one slow or hostile
     // script blocks every other thread that needs the interpreter, including
     // every subsequent extraction.
+    //
+    // A dedicated exception type means the failure can be recognised by class
+    // on the way back out, rather than by matching the rendered text.
     py.allow_threads(|| run_js(&script))
-        .map_err(pyo3::exceptions::PyRuntimeError::new_err)
+        .map_err(JsError::new_err)
 }
 
 /// Register `unity_dlp_js` into `sys.modules` so the Python JCP shim can do
@@ -153,6 +163,7 @@ pub fn register_module(py: Python<'_>) -> Result<(), String> {
     (|| -> PyResult<()> {
         let m = PyModule::new_bound(py, "unity_dlp_js")?;
         m.add_function(wrap_pyfunction!(py_run_js, &m)?)?;
+        m.add("JsError", py.get_type_bound::<JsError>())?;
         py.import_bound("sys")?.getattr("modules")?.set_item("unity_dlp_js", &m)?;
         Ok(())
     })()
