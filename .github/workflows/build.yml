@@ -53,9 +53,11 @@ jobs:
       - name: Export PYO3_PYTHON
         shell: pwsh
         run: |
-          $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
-          if ([string]::IsNullOrWhiteSpace($python)) {
-            throw "uv could not find Python ${{ env.PYTHON_REQUEST }}"
+          $found = uv python find --system ${{ env.PYTHON_REQUEST }}
+          $code = $LASTEXITCODE
+          $python = ($found -join "`n").Trim()
+          if ($code -ne 0 -or [string]::IsNullOrWhiteSpace($python)) {
+            throw "uv could not find Python ${{ env.PYTHON_REQUEST }} (exit $code)"
           }
           "PYO3_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -108,7 +110,12 @@ jobs:
       - name: Stage Python stdlib
         shell: pwsh
         run: |
-          $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
+          $found = uv python find --system ${{ env.PYTHON_REQUEST }}
+          $code = $LASTEXITCODE
+          $python = ($found -join "`n").Trim()
+          if ($code -ne 0 -or [string]::IsNullOrWhiteSpace($python)) {
+            throw "uv could not find Python ${{ env.PYTHON_REQUEST }} (exit $code)"
+          }
           & $python "unity_package/Python~/stage_stdlib.py" windows-x86_64 --python $python
 
       - name: CLI smoke test
@@ -206,6 +213,10 @@ jobs:
       - name: Stage Python stdlib
         run: |
           PYTHON="$(uv python find --system ${{ env.PYTHON_REQUEST }})"
+          if [ -z "$PYTHON" ]; then
+            echo "uv could not find Python ${{ env.PYTHON_REQUEST }}" >&2
+            exit 1
+          fi
           "$PYTHON" "unity_package/Python~/stage_stdlib.py" linux-x86_64 --python "$PYTHON"
 
       - name: CLI smoke test

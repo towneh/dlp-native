@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -137,46 +138,65 @@ fn classify(py: Python<'_>, err: &PyErr) -> fn(String) -> ExtractError {
     // Against the pinned yt-dlp a DNS failure arrives as
     //   DownloadError -> ExtractorError -> TransportError -> socket.gaierror
     // with the OSError three links down, so the chain is what has to be read.
-    let mut current = Some(err.clone_ref(py));
-    for _ in 0..MAX_CAUSE_DEPTH {
-        let Some(link) = current else { break };
-        // TimeoutError derives from OSError, so it has to be tested first or
-        // every timeout would be reported as a network failure.
+    //
+    // Both links are followed. An exception keeps `__context__` even once an
+    // explicit `__cause__` is attached, so following only one can walk straight
+    // past the failure that matters. Precedence is applied over the whole
+    // traversal rather than on first hit: a network error found early must not
+    // mask a JS or timeout failure sitting deeper.
+    let mut queue = VecDeque::from([err.clone_ref(py)]);
+    let mut seen: Vec<usize> = Vec::new();
+    let mut found_timeout = false;
+    let mut found_network = false;
+
+    while let Some(link) = queue.pop_front() {
+        if seen.len() >= MAX_CAUSE_NODES {
+            break;
+        }
+        let value = link.value_bound(py);
+        // Identity, not equality: `__context__` chains can form cycles.
+        let id = value.as_ptr() as usize;
+        if seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+
         if link.is_instance_of::<crate::jsc_provider::JsError>(py) {
+            // Top of the precedence order, so nothing deeper can outrank it.
             return ExtractError::Js;
         }
+        // TimeoutError derives from OSError, so it has to be tested first or
+        // every timeout would be recorded as a network failure.
         if link.is_instance_of::<PyTimeoutError>(py) {
-            return ExtractError::Timeout;
+            found_timeout = true;
+        } else if link.is_instance_of::<PyOSError>(py) {
+            found_network = true;
         }
-        if link.is_instance_of::<PyOSError>(py) {
-            return ExtractError::Network;
+
+        for attr in ["__cause__", "__context__"] {
+            if let Ok(next) = value.getattr(attr) {
+                if !next.is_none() {
+                    queue.push_back(PyErr::from_value_bound(next));
+                }
+            }
         }
-        current = next_cause(py, &link);
     }
-    ExtractError::Python
+
+    if found_timeout {
+        ExtractError::Timeout
+    } else if found_network {
+        ExtractError::Network
+    } else {
+        ExtractError::Python
+    }
 }
 
-/// How far to follow an exception chain.
+/// How many exceptions to examine while walking a chain.
 ///
-/// Bounded because `__context__` can form a cycle, and because a cause this far
-/// down is no longer describing the failure the caller has to act on.
-const MAX_CAUSE_DEPTH: usize = 8;
-
-/// The next link in an exception chain.
-///
-/// `__cause__` is the explicit link left by `raise ... from`; `__context__` is
-/// the implicit one Python records when an exception is raised while handling
-/// another. yt-dlp produces both, so neither alone walks the whole chain.
-fn next_cause(py: Python<'_>, err: &PyErr) -> Option<PyErr> {
-    if let Some(cause) = err.cause(py) {
-        return Some(cause);
-    }
-    let context = err.value_bound(py).getattr("__context__").ok()?;
-    if context.is_none() {
-        return None;
-    }
-    Some(PyErr::from_value_bound(context))
-}
+/// Bounded because following both links makes the chain a graph rather than a
+/// list, and because a cause this far down is no longer describing the failure
+/// the caller has to act on. Cycles are handled by identity, not by this.
+const MAX_CAUSE_NODES: usize = 16;
 
 /// Decrements the in-flight count when the Rust worker thread ends, not when
 /// the caller stops waiting.
@@ -415,3 +435,71 @@ else:
         f"yt-dlp extraction exceeded {_extract_timeout_seconds}s; {_cancel_detail}"
     )
 "#;
+
+#[cfg(test)]
+mod classify_tests {
+    use super::*;
+
+    fn raise(py: Python<'_>, code: &str) -> PyErr {
+        py.run_bound(code, None, None)
+            .expect_err("the snippet is meant to raise")
+    }
+
+    /// An exception keeps `__context__` even after `raise ... from` sets an
+    /// explicit `__cause__`, so a walk that follows only one link misses it.
+    #[test]
+    fn follows_context_even_when_a_cause_is_set() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let err = raise(
+                py,
+                "try:
+    raise TimeoutError('inner')
+except TimeoutError:
+    raise RuntimeError('outer') from ValueError('explicit')
+",
+            );
+            assert!(matches!(
+                classify(py, &err)(String::new()),
+                ExtractError::Timeout(_)
+            ));
+        });
+    }
+
+    /// Precedence holds across the whole traversal, not just within one link:
+    /// a network error found first must not mask a deeper timeout.
+    #[test]
+    fn a_shallow_network_error_does_not_mask_a_deeper_timeout() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let err = raise(
+                py,
+                "try:
+    raise TimeoutError('deep')
+except TimeoutError:
+    raise ConnectionError('shallow')
+",
+            );
+            assert!(matches!(
+                classify(py, &err)(String::new()),
+                ExtractError::Timeout(_)
+            ));
+        });
+    }
+
+    #[test]
+    fn an_unrelated_failure_stays_python() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let err = raise(
+                py,
+                "raise ValueError('nope')
+",
+            );
+            assert!(matches!(
+                classify(py, &err)(String::new()),
+                ExtractError::Python(_)
+            ));
+        });
+    }
+}
