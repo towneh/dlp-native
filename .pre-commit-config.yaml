@@ -1,0 +1,13 @@
+# Runs the same ruff checks the Checks workflow enforces, so a failure shows up
+# before the push rather than after. Run it with prek (`uvx prek install`) or with
+# pre-commit; both read this file.
+#
+# Deliberately narrow: the pytest, actionlint and zizmor jobs stay in CI, where
+# they cost nothing locally and cannot be skipped.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2 # keep in step with RUFF_VERSION in .github/workflows/checks.yml
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

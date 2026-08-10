@@ -1,0 +1,15 @@
+version: 2
+
+updates:
+  # Workflow actions are pinned to commit SHAs, which Dependabot understands: it
+  # bumps the SHA and rewrites the trailing version comment. Without this the pins
+  # would simply rot, which is how the Node 20 deprecation crept in.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
