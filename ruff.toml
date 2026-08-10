@@ -20,12 +20,18 @@ ignore = [
 # arguments have to be accepted whether or not this implementation reads them.
 "python/unity_dlp_jsc/**" = ["ANN001", "ARG001", "BLE001", "EM102", "TRY003"]
 
-# A build script: stdout is its output channel, and it runs against a Python
-# prefix the caller names, not untrusted input. Every script here is stored
-# non-executable and invoked through an interpreter (`python3 scripts/...`,
+# Conventions shared by any build script here: stdout is the output channel, and
+# they run against a Python prefix the caller names, not untrusted input. Each is
+# stored non-executable and invoked through an interpreter (`python3 scripts/...`,
 # `bash scripts/...`), so the shebang names the interpreter rather than declaring
 # the file directly runnable; EXE001 only fires where the mode bit is visible.
-"scripts/*.py" = ["ANN", "C901", "EXE001", "PLR0912", "PTH", "S603", "T201"]
+"scripts/*.py" = ["ANN", "EXE001", "PTH", "S603", "T201"]
+
+# Both complexity rules trip on the same function, stage_stdlib's main(), which is
+# a flat run of argument handling and path resolution rather than anything branchy
+# enough to be worth splitting. Scoped to the one file so a future script does not
+# inherit the exemption silently.
+"scripts/stage_stdlib.py" = ["C901", "PLR0912"]
 
 # Tests: asserts are the mechanism, annotations would be noise on fixtures, and
 # tests/ is deliberately not a package so pytest's rootdir handling finds it.
