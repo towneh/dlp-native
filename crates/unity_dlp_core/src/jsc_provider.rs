@@ -66,15 +66,21 @@ fn run_js_inner(src: &str) -> Result<String, String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
-    use rustyscript::{Error as JsError, Runtime, RuntimeOptions};
+    use rustyscript::{Error as RsError, Runtime, RuntimeOptions};
 
-    fn inner(src: &str) -> Result<String, JsError> {
+    fn inner(src: &str) -> Result<String, RsError> {
         let mut rt = Runtime::new(RuntimeOptions {
             timeout: JS_TIMEOUT,
             max_heap_size: Some(JS_MAX_HEAP_BYTES),
             ..Default::default()
         })?;
 
+        // Safe to terminate from another thread here: rustyscript's eval runs
+        // the source through execute_script as a classic script, not as a
+        // module. Terminating during *module* evaluation is a known v8 fatal
+        // error, so this would need rechecking if the call ever moves to the
+        // module API.
+        //
         // Neither option above stops a script that spins without allocating.
         // rustyscript's timeout is a tokio select against a sleep, which a
         // synchronous loop never yields to, and its terminate callback is
@@ -108,7 +114,7 @@ fn run_js_inner(src: &str) -> Result<String, String> {
                         isolate.terminate_execution();
                     }
                 })
-                .map_err(|e| JsError::Runtime(format!("could not start the JS watchdog: {e}")))?
+                .map_err(|e| RsError::Runtime(format!("could not start the JS watchdog: {e}")))?
         };
 
         let result = rt.eval::<String>(src);
@@ -128,11 +134,17 @@ fn run_js_inner(src: &str) -> Result<String, String> {
     use rquickjs::{Context, Runtime};
 
     let rt = Runtime::new().map_err(|e| format!("rquickjs init: {e}"))?;
+    // Live only while no custom allocator is enabled: set_memory_limit is
+    // documented as a no-op under rquickjs's `rust-alloc` / `allocator`
+    // features. Neither is on — its default set is `classes` + `properties` —
+    // so enabling one later would silently remove this ceiling.
     rt.set_memory_limit(JS_MAX_HEAP_BYTES);
 
     // QuickJS has no watchdog thread: without an interrupt handler a script
     // that enters a loop cannot be stopped at all. The handler is polled by the
-    // interpreter, so returning true unwinds it back out to the eval call.
+    // interpreter, so returning true unwinds it back out to the eval call —
+    // and, for the same reason, it cannot interrupt time spent inside a native
+    // call such as a catastrophic RegExp match, which runs to completion.
     let deadline = std::time::Instant::now() + JS_TIMEOUT;
     rt.set_interrupt_handler(Some(Box::new(move || {
         std::time::Instant::now() >= deadline
@@ -219,8 +231,10 @@ mod tests {
         let elapsed = started.elapsed();
 
         assert!(errored, "an infinite loop must not return Ok");
+        // Tighter than the recv_timeout above, which would otherwise be the
+        // only bound and would let a budget firing at 19s pass as healthy.
         assert!(
-            elapsed < JS_TIMEOUT * 4,
+            elapsed < JS_TIMEOUT * 2,
             "expected termination near the {JS_TIMEOUT:?} budget, took {elapsed:?}"
         );
     }

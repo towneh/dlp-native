@@ -127,17 +127,55 @@ impl ExtractError {
 fn classify(py: Python<'_>, err: &PyErr) -> fn(String) -> ExtractError {
     use pyo3::exceptions::{PyOSError, PyTimeoutError};
 
-    // TimeoutError derives from OSError, so it has to be tested first or every
-    // timeout would be reported as a network failure.
-    if err.is_instance_of::<crate::jsc_provider::JsError>(py) {
-        ExtractError::Js
-    } else if err.is_instance_of::<PyTimeoutError>(py) {
-        ExtractError::Timeout
-    } else if err.is_instance_of::<PyOSError>(py) {
-        ExtractError::Network
-    } else {
-        ExtractError::Python
+    // The raised class alone is not enough. `extract_info` does not let
+    // extractor failures propagate — it routes them through `report_error`,
+    // which raises `DownloadError`, and that derives from `YoutubeDLError`
+    // rather than from `OSError`. Testing only the outermost exception would
+    // report every network failure as a generic Python error and leave ERR_NET
+    // effectively unreachable.
+    //
+    // Against the pinned yt-dlp a DNS failure arrives as
+    //   DownloadError -> ExtractorError -> TransportError -> socket.gaierror
+    // with the OSError three links down, so the chain is what has to be read.
+    let mut current = Some(err.clone_ref(py));
+    for _ in 0..MAX_CAUSE_DEPTH {
+        let Some(link) = current else { break };
+        // TimeoutError derives from OSError, so it has to be tested first or
+        // every timeout would be reported as a network failure.
+        if link.is_instance_of::<crate::jsc_provider::JsError>(py) {
+            return ExtractError::Js;
+        }
+        if link.is_instance_of::<PyTimeoutError>(py) {
+            return ExtractError::Timeout;
+        }
+        if link.is_instance_of::<PyOSError>(py) {
+            return ExtractError::Network;
+        }
+        current = next_cause(py, &link);
     }
+    ExtractError::Python
+}
+
+/// How far to follow an exception chain.
+///
+/// Bounded because `__context__` can form a cycle, and because a cause this far
+/// down is no longer describing the failure the caller has to act on.
+const MAX_CAUSE_DEPTH: usize = 8;
+
+/// The next link in an exception chain.
+///
+/// `__cause__` is the explicit link left by `raise ... from`; `__context__` is
+/// the implicit one Python records when an exception is raised while handling
+/// another. yt-dlp produces both, so neither alone walks the whole chain.
+fn next_cause(py: Python<'_>, err: &PyErr) -> Option<PyErr> {
+    if let Some(cause) = err.cause(py) {
+        return Some(cause);
+    }
+    let context = err.value_bound(py).getattr("__context__").ok()?;
+    if context.is_none() {
+        return None;
+    }
+    Some(PyErr::from_value_bound(context))
 }
 
 /// Decrements the in-flight count when the Rust worker thread ends, not when

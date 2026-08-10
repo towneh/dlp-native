@@ -54,6 +54,9 @@ jobs:
         shell: pwsh
         run: |
           $python = (uv python find --system ${{ env.PYTHON_REQUEST }}).Trim()
+          if ([string]::IsNullOrWhiteSpace($python)) {
+            throw "uv could not find Python ${{ env.PYTHON_REQUEST }}"
+          }
           "PYO3_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: rustfmt
