@@ -357,14 +357,47 @@ jobs:
       # download is checked against the SHA-256 the repository index publishes for
       # it, since this binary ends up in the shipped artifact and runs inside the
       # application's own process.
+      # The index states the checksum of every package, so it decides what counts as
+      # authentic and has to be authenticated itself. Its OpenPGP signature is checked
+      # against a key committed to this repository: fetching the key would leave the
+      # trust rooted in whatever served it, which is the thing being established.
+      - name: Fetch and authenticate the Termux package index
+        run: |
+          set -euo pipefail
+          FPR="CC72CF8BA7DBFA0182877D045A897D96E57CF20C"
+          DIST="https://packages.termux.dev/apt/termux-main/dists/stable"
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          gpg --quiet --import .github/keys/termux-autobuilds.gpg
+
+          curl -fsSL "$DIST/InRelease" -o /tmp/termux-inrelease
+          # VALIDSIG carries the fingerprint that actually signed it. Checking the
+          # exit status alone would accept a good signature from any imported key.
+          # --batch --yes: without them gpg asks before replacing an existing output
+          # file, and a re-run fails there instead of at any of the checks below.
+          gpg --batch --yes --status-fd 1 --output /tmp/termux-release \
+            --decrypt /tmp/termux-inrelease > /tmp/termux-gpg-status 2>/dev/null
+          if ! grep -q "^\[GNUPG:\] VALIDSIG $FPR " /tmp/termux-gpg-status; then
+            echo "::error::the Termux index is not signed by $FPR"
+            cat /tmp/termux-gpg-status
+            exit 1
+          fi
+
+          curl -fsSL "$DIST/main/binary-aarch64/Packages" -o /tmp/termux-packages
+          WANT="$(awk '/^SHA256:/ { s = 1; next } /^[A-Za-z]/ { s = 0 }
+            s && $3 == "main/binary-aarch64/Packages" { print $1; exit }' /tmp/termux-release)"
+          GOT="$(sha256sum /tmp/termux-packages | cut -d' ' -f1)"
+          if [ -z "$WANT" ] || [ "$WANT" != "$GOT" ]; then
+            echo "::error::the package index does not match the checksum in the signed release ($WANT vs $GOT)"
+            exit 1
+          fi
+          echo "==> index authenticated against $FPR"
+
       - name: Download Termux Python for aarch64
         run: |
           set -euo pipefail
           BASE="https://packages.termux.dev/apt/termux-main/pool/main/p/python"
-          # To a file first: awk exiting early on a pipe from curl closes the stream,
-          # and under pipefail curl's write error would fail the step.
-          curl -fsSL "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages" \
-            -o /tmp/termux-packages
           PYTHON_DEB="$(curl -fsSL "$BASE/" \
             | grep -oP 'python_[^"]+_aarch64\.deb' | sort -V | tail -1)"
           echo "==> $PYTHON_DEB"
@@ -374,7 +407,7 @@ jobs:
               for (i = 1; i <= NF; i++) if ($i == "SHA256:") { print $(i + 1); exit }
             }' /tmp/termux-packages)"
           if [ -z "$WANT" ]; then
-            echo "::error::the repository index publishes no SHA256 for $PYTHON_DEB"
+            echo "::error::the authenticated index publishes no SHA256 for $PYTHON_DEB"
             exit 1
           fi
           echo "$WANT  /tmp/python.deb" | sha256sum -c -
