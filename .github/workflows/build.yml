@@ -353,14 +353,31 @@ jobs:
           restore-keys: android-cargo-
 
       # Termux's pool only carries the current build, so there is no older version
-      # to pin to — take the latest and assert the version in the next step.
+      # to pin to — take the latest and assert the version in the next step. The
+      # download is checked against the SHA-256 the repository index publishes for
+      # it, since this binary ends up in the shipped artifact and runs inside the
+      # application's own process.
       - name: Download Termux Python for aarch64
         run: |
+          set -euo pipefail
           BASE="https://packages.termux.dev/apt/termux-main/pool/main/p/python"
+          # To a file first: awk exiting early on a pipe from curl closes the stream,
+          # and under pipefail curl's write error would fail the step.
+          curl -fsSL "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages" \
+            -o /tmp/termux-packages
           PYTHON_DEB="$(curl -fsSL "$BASE/" \
             | grep -oP 'python_[^"]+_aarch64\.deb' | sort -V | tail -1)"
           echo "==> $PYTHON_DEB"
           curl -fsSL "$BASE/$PYTHON_DEB" -o /tmp/python.deb
+          WANT="$(awk -v deb="$PYTHON_DEB" 'BEGIN { RS = "" }
+            $0 ~ ("Filename: .*/" deb "\n") {
+              for (i = 1; i <= NF; i++) if ($i == "SHA256:") { print $(i + 1); exit }
+            }' /tmp/termux-packages)"
+          if [ -z "$WANT" ]; then
+            echo "::error::the repository index publishes no SHA256 for $PYTHON_DEB"
+            exit 1
+          fi
+          echo "$WANT  /tmp/python.deb" | sha256sum -c -
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
 
@@ -369,13 +386,19 @@ jobs:
       # without it the loader cannot open libunity_dlp, and Unity reports that as
       # DllNotFoundException on the plugin rather than on the library actually absent.
       # Extracted over the same prefix so the staging step below finds both together.
+      # Pinned rather than latest-wins, and checked before it is opened: this ends up
+      # in the shipped artifact and is loaded into the application's process.
       - name: Download Termux libandroid-support for aarch64
         run: |
+          set -euo pipefail
+          SUPPORT_DEB="libandroid-support_29-1_aarch64.deb"
+          SUPPORT_SHA256="f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
           BASE="https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-support"
-          SUPPORT_DEB="$(curl -fsSL "$BASE/" \
-            | grep -oP 'libandroid-support_[^"]+_aarch64\.deb' | sort -V | tail -1)"
-          echo "==> $SUPPORT_DEB"
-          curl -fsSL "$BASE/$SUPPORT_DEB" -o /tmp/libandroid-support.deb
+          if ! curl -fsSL "$BASE/$SUPPORT_DEB" -o /tmp/libandroid-support.deb; then
+            echo "::error::$SUPPORT_DEB is no longer in the Termux pool, which keeps only the current build. Read the new version and its SHA256 out of dists/stable/main/binary-aarch64/Packages and move both together."
+            exit 1
+          fi
+          echo "$SUPPORT_SHA256  /tmp/libandroid-support.deb" | sha256sum -c -
           cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
 
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
