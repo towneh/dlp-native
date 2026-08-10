@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-Stage a Python stdlib zip into unity_package/StreamingAssets/dlp/stdlib/.
+Stage a Python stdlib zip into the package's StreamingAssets/dlp/stdlib/.
+
+Lives inside the Unity package rather than under scripts/ because
+DlpBuildPreprocessor runs it during player builds, and a consumer who installed
+the package only has unity_package/ on disk. The trailing ~ stops Unity
+importing the directory as assets. CI runs this same file, so the player build
+and the CI build share one implementation instead of drifting apart.
 
 Usage:
-  python3 scripts/stage_stdlib.py PLATFORM [--python PYTHON_EXE]
-                                            [--prefix PREFIX_DIR]
-                                            [--bases BASE [BASE ...]]
+  python3 unity_package/Python~/stage_stdlib.py PLATFORM [--python PYTHON_EXE]
+                                                         [--prefix PREFIX_DIR]
+                                                         [--bases BASE ...]
 
 PLATFORM    Target identifier, e.g.:
               windows-x86_64  macos-universal  linux-x86_64
@@ -28,6 +34,7 @@ PLATFORM    Target identifier, e.g.:
 --out-dir   Directory to write <platform>.zip into. Defaults to
             DEFAULT_OUT_DIR, which is anchored to this file rather than the
             working directory, so the script can be run from anywhere.
+            DlpBuildPreprocessor passes it explicitly.
 
 The zip is stored uncompressed (ZIP_STORED) so the OS can page individual
 files directly after extraction rather than decompressing everything upfront.
@@ -66,9 +73,10 @@ ALWAYS_EXCLUDE = frozenset(
 _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
 # Anchored to this file, not the working directory, so the destination does not
-# depend on where the script was invoked from.
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_OUT_DIR = os.path.join(_REPO_ROOT, "unity_package", "StreamingAssets", "dlp", "stdlib")
+# depend on where the script was invoked from. This file sits at
+# <package>/Python~/, so two levels up is the package root.
+_PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_OUT_DIR = os.path.join(_PACKAGE_ROOT, "StreamingAssets", "dlp", "stdlib")
 
 
 def main():

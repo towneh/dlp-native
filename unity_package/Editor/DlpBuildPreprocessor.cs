@@ -154,73 +154,59 @@ namespace YtDlp.Editor
                 }
             }
 
-            // 2. uv python find 3.14
-            var uv = Exec("uv", "python find 3.14");
+            // 2. uv. --system keeps discovery off an active virtualenv, whose prefix has
+            //    a Lib/ holding only site-packages; +gil keeps it off a free-threaded
+            //    build. Matches PYTHON_REQUEST in .github/workflows/build.yml.
+            var uv = Exec("uv", "python find --system 3.14+gil");
             if (!string.IsNullOrEmpty(uv) && File.Exists(uv)) return uv;
 
             return null;
         }
 
+        /// <summary>
+        /// Path to the staging script shipped inside the package. It lives under
+        /// Python~/ so Unity does not import it as an asset, and it is the same file
+        /// CI invokes — the player build and the CI build must not stage differently.
+        /// </summary>
+        private static string StageScriptPath()
+        {
+            var pkg = PackageInfo.FindForAssembly(typeof(DlpBuildPreprocessor).Assembly);
+            if (pkg == null) return null;
+            var path = Path.Combine(pkg.resolvedPath, "Python~", "stage_stdlib.py");
+            return File.Exists(path) ? path : null;
+        }
+
         private static void RunStageScript(string python, string platformId, string outZip)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(outZip)!);
+            var script = StageScriptPath();
+            if (script == null)
+                throw new BuildFailedException(
+                    "[YtDlp] stage_stdlib.py not found in the package (expected Python~/stage_stdlib.py).");
 
-            // Write the staging logic to a temp file — avoids quoting issues.
-            var tmp = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".py");
-            try
-            {
-                File.WriteAllText(tmp, BuildScript(platformId, outZip));
-                var result = Exec(python, $"\"{tmp}\"");
-                if (!string.IsNullOrEmpty(result))
-                    Debug.Log($"[YtDlp] {result}");
-            }
-            finally
-            {
-                try { File.Delete(tmp); } catch { }
-            }
+            var outDir = Path.GetDirectoryName(outZip)!;
+            Directory.CreateDirectory(outDir);
+
+            // The script names the archive <platform>.zip itself, so it takes the
+            // directory. Running it with the resolved interpreter is what selects the
+            // prefix: with no --prefix or --python, it stages that interpreter's own.
+            var ok = Exec(python, $"\"{script}\" {platformId} --out-dir \"{outDir}\"",
+                          out var stdout, out var stderr);
+            if (!string.IsNullOrEmpty(stdout)) Debug.Log($"[YtDlp] {stdout}");
+            if (!ok)
+                throw new BuildFailedException(
+                    $"[YtDlp] stage_stdlib.py failed for {platformId}. {stderr}");
         }
 
-        private static string BuildScript(string platformId, string outZip)
-        {
-            // Escape backslashes for the Python string literal
-            var escapedOut = outZip.Replace("\\", "\\\\");
-            return
-$@"import zipfile, os, sys
-
-prefix = sys.prefix
-out    = r'{escapedOut}'
-os.makedirs(os.path.dirname(out), exist_ok=True)
-
-exclude = {{'__pycache__', 'test', 'ensurepip'}}
-
-if sys.platform == 'win32':
-    bases = ['Lib', 'DLLs']
-else:
-    lib  = os.path.join(prefix, 'lib')
-    dirs = sorted(d for d in os.listdir(lib) if d.startswith('python3.'))
-    bases = [os.path.join('lib', dirs[-1])] if dirs else []
-
-total = 0
-with zipfile.ZipFile(out, 'w', zipfile.ZIP_STORED) as z:
-    for base in bases:
-        bd = os.path.join(prefix, base)
-        if not os.path.isdir(bd):
-            continue
-        for root, dirs, files in os.walk(bd):
-            dirs[:] = [d for d in dirs if d not in exclude]
-            for f in files:
-                full = os.path.join(root, f)
-                arc  = os.path.relpath(full, prefix).replace(os.sep, '/')
-                z.write(full, arc)
-                total += 1
-
-mb = os.path.getsize(out) / 1_048_576
-print(f'Staged {{total}} files from {{prefix}} ({{mb:.1f}} MB) -> {{out}}')
-";
-        }
-
+        // stdout only, so a caller reading a path out of it is not handed diagnostics.
         private static string Exec(string exe, string args)
+            => Exec(exe, args, out var stdout, out _) ? stdout : null;
+
+        // False on a non-zero exit or a launch failure. stderr is returned separately
+        // so a staging failure can say why rather than only that a file is absent.
+        private static bool Exec(string exe, string args, out string stdout, out string stderr)
         {
+            stdout = null;
+            stderr = null;
             try
             {
                 using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -232,11 +218,16 @@ print(f'Staged {{total}} files from {{prefix}} ({{mb:.1f}} MB) -> {{out}}')
                     UseShellExecute        = false,
                     CreateNoWindow         = true,
                 });
-                var stdout = p.StandardOutput.ReadToEnd().Trim();
+                stdout = p.StandardOutput.ReadToEnd().Trim();
+                stderr = p.StandardError.ReadToEnd().Trim();
                 p.WaitForExit(60_000);
-                return p.ExitCode == 0 ? stdout : null;
+                return p.ExitCode == 0;
             }
-            catch { return null; }
+            catch (System.Exception e)
+            {
+                stderr = e.Message;
+                return false;
+            }
         }
     }
 }

@@ -13,7 +13,10 @@ VERSION=$(cargo metadata --no-deps --format-version 1 \
 TARBALL="com.yewnyx.ytdlp-${VERSION}.tgz"
 
 echo "==> Packaging version $VERSION into $TARBALL..."
+# Python~/ ships the stdlib staging script, so running it in the working tree
+# leaves bytecode behind that has no business in a release tarball.
 tar -czf "$TARBALL" \
+  --exclude='__pycache__' \
   --transform 's|^unity_package|package|' \
   unity_package/
 

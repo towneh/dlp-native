@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = REPO_ROOT / "scripts" / "stage_stdlib.py"
+SCRIPT = REPO_ROOT / "unity_package" / "Python~" / "stage_stdlib.py"
 
 
 @pytest.fixture(scope="session")

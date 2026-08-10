@@ -1,4 +1,4 @@
-"""Behaviour of scripts/stage_stdlib.py.
+"""Behaviour of the stdlib staging script shipped at unity_package/Python~/.
 
 The base auto-detection and the exclusion set decide what ships inside every
 platform's stdlib zip, and a wrong choice there surfaces as a runtime failure in
@@ -215,7 +215,9 @@ def test_empty_base_is_an_error_and_leaves_no_archive(run_stage, prefix, out_dir
 # ── Output location ──────────────────────────────────────────────────────────
 
 
-def test_default_out_dir_is_anchored_to_the_repo_not_the_cwd(stage_stdlib, tmp_path, monkeypatch):
+def test_default_out_dir_is_anchored_to_the_package_not_the_cwd(
+    stage_stdlib, tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     default = Path(stage_stdlib.DEFAULT_OUT_DIR)
 
@@ -223,4 +225,6 @@ def test_default_out_dir_is_anchored_to_the_repo_not_the_cwd(stage_stdlib, tmp_p
     assert default.parts[-4:] == ("unity_package", "StreamingAssets", "dlp", "stdlib")
     # Anchored to the script, so the cwd above must not appear in it.
     assert tmp_path not in default.parents
-    assert (default.parents[3] / "scripts" / "stage_stdlib.py").is_file()
+    # parents[2] is the package root, which is what the script derives from. A
+    # consumer only has unity_package/ on disk, so this must not reach the repo.
+    assert (default.parents[2] / "Python~" / "stage_stdlib.py").is_file()
