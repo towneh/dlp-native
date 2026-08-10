@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   # The CPython that ships in the package. abi3-py312 in Cargo.toml is the floor
@@ -25,17 +28,18 @@ jobs:
     name: Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry
@@ -56,7 +60,7 @@ jobs:
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-windows-x64
           path: |
@@ -68,14 +72,15 @@ jobs:
     name: macOS universal
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          persist-credentials: false
 
       # actions/setup-python on macos-latest installs a universal2 build, which
       # PyO3 can use for both the native arm64 and the x86_64 cross-compile.
       - name: Install Python ${{ env.PYTHON_VERSION }} (universal2)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -83,13 +88,13 @@ jobs:
         run: echo "PYO3_PYTHON=$(python3 -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
 
       - name: Install uv (for hatch_build.py in build.rs)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Rust targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry
@@ -108,7 +113,7 @@ jobs:
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo -- version
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-macos-universal
           path: |
@@ -121,17 +126,18 @@ jobs:
     name: Linux x64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install Python ${{ env.PYTHON_VERSION }}
         run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry
@@ -151,7 +157,7 @@ jobs:
         run: cargo run -p unity_dlp_cli --profile release-with-debuginfo --no-default-features --features js-quickjs -- version
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-linux-x64
           path: |
@@ -164,9 +170,10 @@ jobs:
     name: Android arm64-v8a
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install Rust Android target
         run: rustup target add aarch64-linux-android
@@ -179,14 +186,15 @@ jobs:
 
       - name: Locate Android NDK and configure bindgen sysroot
         run: |
-          NDK_DIR="$(ls -d "$ANDROID_SDK_ROOT"/ndk/*/ | sort -V | tail -1)"
-          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          NDK_DIR="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           NDK_SYSROOT="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26" \
-            >> "$GITHUB_ENV"
+          {
+            echo "ANDROID_NDK_HOME=$NDK_DIR"
+            echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26"
+          } >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry
@@ -220,14 +228,16 @@ jobs:
           fi
           cp -L "$LIBPY" "python-android-lib/libpython${PY_VER}.so"
           LIB_DIR="$(pwd)/python-android-lib"
-          echo "PYO3_CROSS_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
-          echo "PYO3_CROSS_PYTHON_VERSION=${PY_VER}" >> "$GITHUB_ENV"
           # PYO3_NO_PYTHON skips sysconfig parsing; without it pyo3-build-config reads
           # LIBDIR from the Termux sysconfig (/data/data/com.termux/...) which doesn't
-          # exist on the runner, so the linker search path is wrong.
-          echo "PYO3_NO_PYTHON=1" >> "$GITHUB_ENV"
-          # Expose prefix for stdlib staging
-          echo "TERMUX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          # exist on the runner, so the linker search path is wrong. TERMUX_PREFIX is
+          # exposed for stdlib staging.
+          {
+            echo "PYO3_CROSS_LIB_DIR=$LIB_DIR"
+            echo "PYO3_CROSS_PYTHON_VERSION=${PY_VER}"
+            echo "PYO3_NO_PYTHON=1"
+            echo "TERMUX_PREFIX=$PREFIX"
+          } >> "$GITHUB_ENV"
 
       - name: Build Android arm64-v8a
         run: |
@@ -251,7 +261,7 @@ jobs:
           cp -L "$LIBPY" unity_package/Plugins/Android/libs/arm64-v8a/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-android-arm64
           path: |
@@ -266,21 +276,22 @@ jobs:
     env:
       IPHONEOS_DEPLOYMENT_TARGET: '16.0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
       - name: Install Python ${{ env.PYTHON_VERSION }} (host — stdlib source for iOS)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache Python for iOS arm64 (python-apple-support)
         id: cache-py-ios
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: python-ios
           key: python-${{ env.PYTHON_VERSION }}-ios-support-${{ env.IOS_SUPPORT_BUILD }}
@@ -301,20 +312,23 @@ jobs:
         run: |
           LIBPY="libpython${{ env.PYTHON_VERSION }}.a"
           DEVICE_FW="$(pwd)/python-ios/Python.xcframework/ios-arm64/Python.framework"
-          SIM_FW_DIR="$(ls -d "$(pwd)/python-ios/Python.xcframework/"*simulator*/ | head -1)"
+          SIM_FW_DIR="$(find "$(pwd)/python-ios/Python.xcframework" -mindepth 1 -maxdepth 1 \
+            -type d -name '*simulator*' | head -1)"
           SIM_FW="${SIM_FW_DIR%/}/Python.framework"
           mkdir -p python-ios-device-lib python-ios-sim-lib
           cp "${DEVICE_FW}/Python" "python-ios-device-lib/${LIBPY}"
           cp "${SIM_FW}/Python"    "python-ios-sim-lib/${LIBPY}"
-          echo "CFLAGS=-I${DEVICE_FW}/Headers" >> "$GITHUB_ENV"
-          echo "IOS_DEVICE_LIB=$(pwd)/python-ios-device-lib" >> "$GITHUB_ENV"
-          echo "IOS_SIM_LIB=$(pwd)/python-ios-sim-lib"       >> "$GITHUB_ENV"
-          # Set here rather than in the job env block: job-level env cannot read
-          # the workflow-level env context.
-          echo "PYO3_CROSS_PYTHON_VERSION=${{ env.PYTHON_VERSION }}" >> "$GITHUB_ENV"
+          # PYO3_CROSS_PYTHON_VERSION is set here rather than in the job env block:
+          # job-level env cannot read the workflow-level env context.
+          {
+            echo "CFLAGS=-I${DEVICE_FW}/Headers"
+            echo "IOS_DEVICE_LIB=$(pwd)/python-ios-device-lib"
+            echo "IOS_SIM_LIB=$(pwd)/python-ios-sim-lib"
+            echo "PYO3_CROSS_PYTHON_VERSION=${{ env.PYTHON_VERSION }}"
+          } >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cargo/registry
@@ -324,14 +338,16 @@ jobs:
 
       - name: Build iOS device (arm64)
         run: |
-          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SDKROOT
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_DEVICE_LIB" \
             cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios \
             --no-default-features --features js-quickjs
 
       - name: Build iOS simulator (arm64)
         run: |
-          export SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          SDKROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          export SDKROOT
           BINDGEN_EXTRA_CLANG_ARGS="--target=arm64-apple-ios-simulator --sysroot=$SDKROOT" \
           PYO3_NO_PYTHON=1 PYO3_CROSS_LIB_DIR="$IOS_SIM_LIB" \
             cargo build -p unity_dlp_core --profile release-with-debuginfo --target aarch64-apple-ios-sim \
@@ -356,7 +372,7 @@ jobs:
             -output unity_package/Plugins/iOS/unity_dlp.xcframework
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-ios-arm64
           path: |

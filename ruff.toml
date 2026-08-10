@@ -27,6 +27,10 @@ ignore = [
 # the file directly runnable; EXE001 only fires where the mode bit is visible.
 "scripts/*.py" = ["ANN", "C901", "EXE001", "PTH", "S603", "T201"]
 
+# Tests: asserts are the mechanism, annotations would be noise on fixtures, and
+# tests/ is deliberately not a package so pytest's rootdir handling finds it.
+"tests/**" = ["ANN", "INP001", "S101"]
+
 [lint.isort]
 # unity_dlp_js is this project's PyO3 module, injected into sys.modules by
 # jsc_provider::register_module() — keep it out of the third-party block.
