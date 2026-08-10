@@ -1,6 +1,13 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+# Metadata only. This package is never installed: build.rs copies the inner
+# unity_dlp_jsc/ directory straight into yt_dlp.zip, and python_host::init
+# imports it by name off sys.path.
+#
+# So there is deliberately no [build-system] here, and no entry-points table.
+# yt-dlp discovers plugins through the yt_dlp_plugins namespace package rather
+# than importlib.metadata, so an entry point could not register this shim even
+# if the package were installed. Registration happens because init runs
+# `import unity_dlp_jsc`, which triggers @register_provider — do not remove that
+# import on the assumption something declarative covers it.
 
 [project]
 name = "unity-dlp-jsc"
@@ -8,6 +15,3 @@ version = "0.1.0"
 description = "JSCProvider shim: routes yt-dlp JavaScript challenges to Rust/V8"
 requires-python = ">=3.12"
 dependencies = []
-
-[project.entry-points."yt_dlp.plugins"]
-unity_dlp_jsc = "unity_dlp_jsc"
