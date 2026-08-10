@@ -23,18 +23,23 @@ def stage_stdlib():
 
 
 @pytest.fixture
-def run_stage(stage_stdlib, tmp_path, monkeypatch):
-    """Run main() with argv in a scratch cwd; return the zip it wrote.
+def out_dir(tmp_path):
+    """Where the tests send archives, so nothing lands in the real package."""
+    return tmp_path / "out"
 
-    The script resolves its output relative to the working directory, so the
-    chdir is what puts the archive somewhere disposable.
+
+@pytest.fixture
+def run_stage(stage_stdlib, out_dir, monkeypatch):
+    """Run main() with argv; return the zip it wrote.
+
+    --out-dir is always passed: the default is anchored to the repo, and tests
+    must not write into unity_package/.
     """
 
     def _run(*argv):
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(sys, "argv", ["stage_stdlib.py", *argv])
+        monkeypatch.setattr(sys, "argv", ["stage_stdlib.py", *argv, "--out-dir", str(out_dir)])
         stage_stdlib.main()
-        return tmp_path / "unity_package/StreamingAssets/dlp/stdlib" / f"{argv[0]}.zip"
+        return out_dir / f"{argv[0]}.zip"
 
     return _run
 

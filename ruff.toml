@@ -25,7 +25,7 @@ ignore = [
 # non-executable and invoked through an interpreter (`python3 scripts/...`,
 # `bash scripts/...`), so the shebang names the interpreter rather than declaring
 # the file directly runnable; EXE001 only fires where the mode bit is visible.
-"scripts/*.py" = ["ANN", "C901", "EXE001", "PTH", "S603", "T201"]
+"scripts/*.py" = ["ANN", "C901", "EXE001", "PLR0912", "PTH", "S603", "T201"]
 
 # Tests: asserts are the mechanism, annotations would be noise on fixtures, and
 # tests/ is deliberately not a package so pytest's rootdir handling finds it.

@@ -183,3 +183,44 @@ def test_output_is_named_after_the_platform(run_stage, prefix):
 
     assert out.name == "android-arm64-v8a.zip"
     assert out.is_file()
+
+
+# ── Failure to stage anything ────────────────────────────────────────────────
+
+
+def test_staging_nothing_is_an_error(run_stage, prefix, out_dir):
+    # A base that exists but holds only excluded content: the walk finds the
+    # directory, so the missing-base warning never fires, yet nothing is written.
+    write(prefix / "lib" / "python3.14" / "test" / "only-excluded.py")
+
+    with pytest.raises(SystemExit) as exc:
+        run_stage("linux-x86_64", "--prefix", str(prefix))
+
+    assert "staged nothing" in str(exc.value)
+    # An empty archive left behind would satisfy DlpBuildPreprocessor's
+    # "already staged" check and ship a stdlib-less zip.
+    assert not (out_dir / "linux-x86_64.zip").exists()
+
+
+def test_empty_base_is_an_error_and_leaves_no_archive(run_stage, prefix, out_dir):
+    write(prefix / "Lib" / "placeholder" / "x.py")
+
+    with pytest.raises(SystemExit) as exc:
+        run_stage("windows-x86_64", "--prefix", str(prefix), "--bases", "Absent")
+
+    assert "staged nothing" in str(exc.value)
+    assert not (out_dir / "windows-x86_64.zip").exists()
+
+
+# ── Output location ──────────────────────────────────────────────────────────
+
+
+def test_default_out_dir_is_anchored_to_the_repo_not_the_cwd(stage_stdlib, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    default = Path(stage_stdlib.DEFAULT_OUT_DIR)
+
+    assert default.is_absolute()
+    assert default.parts[-4:] == ("unity_package", "StreamingAssets", "dlp", "stdlib")
+    # Anchored to the script, so the cwd above must not appear in it.
+    assert tmp_path not in default.parents
+    assert (default.parents[3] / "scripts" / "stage_stdlib.py").is_file()

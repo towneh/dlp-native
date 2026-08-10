@@ -25,8 +25,16 @@ PLATFORM    Target identifier, e.g.:
 --exclude-dirs
             Extra directory names to skip, on top of ALWAYS_EXCLUDE below.
 
+--out-dir   Directory to write <platform>.zip into. Defaults to
+            DEFAULT_OUT_DIR, which is anchored to this file rather than the
+            working directory, so the script can be run from anywhere.
+
 The zip is stored uncompressed (ZIP_STORED) so the OS can page individual
 files directly after extraction rather than decompressing everything upfront.
+
+Staging nothing is treated as a failure: an empty archive still satisfies the
+"already staged, skip it" check in DlpBuildPreprocessor, so it would quietly
+persist into a player build.
 """
 
 import argparse
@@ -57,6 +65,11 @@ ALWAYS_EXCLUDE = frozenset(
 # lib/ entries the POSIX base auto-detection will consider.
 _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
+# Anchored to this file, not the working directory, so the destination does not
+# depend on where the script was invoked from.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_OUT_DIR = os.path.join(_REPO_ROOT, "unity_package", "StreamingAssets", "dlp", "stdlib")
+
 
 def main():
     p = argparse.ArgumentParser(
@@ -74,6 +87,12 @@ def main():
         metavar="DIR",
         default=[],
         help="Extra directory names to skip, on top of the built-in list",
+    )
+    p.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        default=DEFAULT_OUT_DIR,
+        help="Where to write <platform>.zip (default: the repo's staged stdlib dir)",
     )
     args = p.parse_args()
 
@@ -106,7 +125,7 @@ def main():
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
         bases = [os.path.join("lib", max(py_dirs)[1])]
 
-    out = os.path.join("unity_package", "StreamingAssets", "dlp", "stdlib", args.platform + ".zip")
+    out = os.path.join(args.out_dir, args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
@@ -125,6 +144,12 @@ def main():
                     arc = os.path.relpath(full, prefix).replace(os.sep, "/")
                     z.write(full, arc)
                     total += 1
+
+    if total == 0:
+        # Leaving the empty archive behind would satisfy the "already staged"
+        # check in DlpBuildPreprocessor and ship a stdlib-less zip.
+        os.remove(out)
+        sys.exit(f"ERROR: staged nothing from {prefix!r} (bases: {bases})")
 
     size_mb = os.path.getsize(out) / 1_048_576
     print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
