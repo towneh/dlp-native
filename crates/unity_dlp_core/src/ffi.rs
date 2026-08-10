@@ -14,9 +14,62 @@ fn last_error_mutex() -> &'static std::sync::Mutex<String> {
     LAST_ERROR.get_or_init(|| std::sync::Mutex::new(String::new()))
 }
 
+/// Upper bound on the stored error string, in bytes. The text is built from
+/// remote-derived exception messages, so it is capped here rather than left to
+/// grow unbounded in a process-global slot. Matches the buffer the C# wrapper
+/// rents, so a well-behaved reader never has to retry.
+const MAX_LAST_ERROR_BYTES: usize = 4096;
+const LAST_ERROR_TRUNCATED_SUFFIX: &str = "... [truncated]";
+
+fn clamp_error_message(mut msg: String) -> String {
+    if msg.len() > MAX_LAST_ERROR_BYTES {
+        let keep = MAX_LAST_ERROR_BYTES - LAST_ERROR_TRUNCATED_SUFFIX.len();
+        // floor_char_boundary is unstable, so walk back to one by hand.
+        let mut cut = keep;
+        while cut > 0 && !msg.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        msg.truncate(cut);
+        msg.push_str(LAST_ERROR_TRUNCATED_SUFFIX);
+    }
+    msg
+}
+
 fn set_last_error(msg: impl Into<String>) {
+    let msg = clamp_error_message(msg.into());
     if let Ok(mut guard) = last_error_mutex().lock() {
-        *guard = msg.into();
+        *guard = msg;
+    }
+}
+
+#[cfg(test)]
+mod last_error_tests {
+    use super::*;
+
+    #[test]
+    fn short_messages_are_unchanged() {
+        assert_eq!(clamp_error_message("boom".to_string()), "boom");
+    }
+
+    #[test]
+    fn a_message_at_the_limit_is_unchanged() {
+        let msg = "a".repeat(MAX_LAST_ERROR_BYTES);
+        assert_eq!(clamp_error_message(msg.clone()), msg);
+    }
+
+    #[test]
+    fn oversized_messages_are_capped() {
+        let got = clamp_error_message("a".repeat(MAX_LAST_ERROR_BYTES * 3));
+        assert_eq!(got.len(), MAX_LAST_ERROR_BYTES);
+        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
+    }
+
+    #[test]
+    fn truncation_lands_on_a_char_boundary() {
+        // A multi-byte character straddling the cut must not be split.
+        let got = clamp_error_message("é".repeat(MAX_LAST_ERROR_BYTES));
+        assert!(got.len() <= MAX_LAST_ERROR_BYTES);
+        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
     }
 }
 
@@ -216,7 +269,15 @@ pub extern "C" fn unity_dlp_extract(
     };
 
     let bytes = json.as_bytes();
-    let needed = bytes.len() as i32;
+    // The ABI expresses lengths as int32_t. Reject anything it cannot describe
+    // rather than narrowing: a wrapped length would be checked against out_cap
+    // while the copy below still moved the full payload.
+    let Ok(needed) = i32::try_from(bytes.len()) else {
+        set_last_error("result exceeds the 2 GiB limit the ABI can express");
+        // SAFETY: out_len is non-null (checked above).
+        unsafe { *out_len = 0 };
+        return UNITY_DLP_ERR_BUF;
+    };
     // SAFETY: out_len is non-null (checked above).
     unsafe { *out_len = needed };
 
@@ -224,7 +285,9 @@ pub extern "C" fn unity_dlp_extract(
         return UNITY_DLP_ERR_BUF;
     }
 
-    // SAFETY: out_buf points to at least out_cap bytes (caller guarantee).
+    // SAFETY: out_buf points to at least out_cap bytes (caller guarantee), and
+    // out_cap >= needed == bytes.len() was just checked, so the copy stays
+    // inside the caller's buffer.
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len()) };
     UNITY_DLP_OK
 }
@@ -251,13 +314,24 @@ pub extern "C" fn unity_dlp_last_error(
         .unwrap_or_default();
 
     let bytes = msg.as_bytes();
-    let needed = bytes.len() as i32;
+    // set_last_error caps the stored message at MAX_LAST_ERROR_BYTES, so this
+    // conversion cannot fail; it is written as a check rather than a cast so the
+    // guard below can never be compared against a wrapped length.
+    let Ok(needed) = i32::try_from(bytes.len()) else {
+        // SAFETY: out_len is non-null (checked above).
+        unsafe { *out_len = 0 };
+        return UNITY_DLP_ERR_BUF;
+    };
+    // SAFETY: out_len is non-null (checked above).
     unsafe { *out_len = needed };
 
     if out_buf.is_null() || out_cap < needed {
         return UNITY_DLP_ERR_BUF;
     }
 
+    // SAFETY: out_buf points to at least out_cap bytes (caller guarantee), and
+    // out_cap >= needed == bytes.len() was just checked, so the copy stays
+    // inside the caller's buffer.
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len()) };
     UNITY_DLP_OK
 }
