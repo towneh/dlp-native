@@ -27,6 +27,17 @@ $artifactNames = @{
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $tmpDir   = Join-Path ([System.IO.Path]::GetTempPath()) "dlp-artifacts-$(Get-Random)"
 
+# These doubled paths must not exist: Unity reads one as a second native plugin
+# sharing a name with the real one and fails the build on the duplicate. Clear
+# them if present — and only them; anything else in unity_package/ is left alone.
+foreach ($doubled in @("Plugins/Plugins", "StreamingAssets/StreamingAssets")) {
+    $stale = Join-Path $repoRoot (Join-Path "unity_package" $doubled)
+    if (Test-Path -LiteralPath $stale) {
+        Write-Host "==> Removing nested path: unity_package/$doubled"
+        Remove-Item -LiteralPath $stale -Recurse -Force
+    }
+}
+
 try {
     New-Item -ItemType Directory -Force $tmpDir | Out-Null
 
@@ -66,11 +77,79 @@ try {
 
         # upload-artifact@v4 strips the common path prefix, so unity_package/ is
         # stripped and Plugins/ + StreamingAssets/ land at the root of the download dir.
+        #
+        # Merge file by file with each relative path rebuilt: `Copy-Item -Recurse`
+        # on a directory whose destination already exists copies the source *inside*
+        # it instead of merging, and every destination here already exists.
         $dstPkg = Join-Path $repoRoot "unity_package"
-        Get-ChildItem $platTmp | ForEach-Object {
-            Copy-Item $_.FullName (Join-Path $dstPkg $_.Name) -Recurse -Force
+        $prefix = (Resolve-Path $platTmp).Path.TrimEnd('\', '/')
+
+        $planned = Get-ChildItem $platTmp -Recurse -File | ForEach-Object {
+            $rel = $_.FullName.Substring($prefix.Length).TrimStart('\', '/')
+            [pscustomobject]@{ Source = $_.FullName; Dest = Join-Path $dstPkg $rel }
         }
-        Write-Host "    Merged into unity_package/"
+
+        # Check every destination is writable before touching any of them. The
+        # common failure is the Unity Editor holding unity_dlp.dll open, which
+        # would otherwise leave StreamingAssets updated against a stale plugin —
+        # a mismatched pair that is hard to spot and easy to misdiagnose.
+        $locked = $planned | Where-Object { Test-Path -LiteralPath $_.Dest } | Where-Object {
+            try {
+                $fs = [System.IO.File]::Open($_.Dest, 'Open', 'Write', 'None')
+                $fs.Close()
+                $false
+            } catch { $true }
+        }
+        if ($locked) {
+            Write-Warning "Cannot write these files — close the Unity Editor and re-run:"
+            $locked | ForEach-Object { Write-Warning "    $($_.Dest)" }
+            throw "Refusing to part-update unity_package/ for $name"
+        }
+
+        # Each file is written to a sibling temp name and renamed, so an interrupted
+        # write cannot leave a half-written binary in place of a good one. Every
+        # replaced file is kept until the whole set lands: a failure part way through
+        # would otherwise leave the same mismatched pair the check above prevents, so
+        # the originals go back.
+        $backupRoot = Join-Path $tmpDir "restore-$plat"
+        $replaced = New-Object System.Collections.ArrayList
+        $created  = New-Object System.Collections.ArrayList
+        $stagedFiles = New-Object System.Collections.ArrayList
+        try {
+            foreach ($item in $planned) {
+                New-Item -ItemType Directory -Force (Split-Path $item.Dest -Parent) | Out-Null
+
+                if (Test-Path -LiteralPath $item.Dest) {
+                    $backup = Join-Path $backupRoot ([System.IO.Path]::GetRandomFileName())
+                    New-Item -ItemType Directory -Force $backupRoot | Out-Null
+                    Copy-Item -LiteralPath $item.Dest -Destination $backup -Force
+                    [void]$replaced.Add([pscustomobject]@{ Dest = $item.Dest; Backup = $backup })
+                } else {
+                    [void]$created.Add($item.Dest)
+                }
+
+                # Unique per file, so this cannot collide with anything already on
+                # disk and the exact paths written are known for the rollback below.
+                $staged = "$($item.Dest).$([System.IO.Path]::GetRandomFileName()).incoming"
+                [void]$stagedFiles.Add($staged)
+                Copy-Item -LiteralPath $item.Source -Destination $staged -Force
+                Move-Item -LiteralPath $staged -Destination $item.Dest -Force
+            }
+        } catch {
+            Write-Warning "Staging $name failed — restoring unity_package/ to its previous state"
+            foreach ($r in $replaced) {
+                Copy-Item -LiteralPath $r.Backup -Destination $r.Dest -Force -ErrorAction SilentlyContinue
+            }
+            foreach ($c in $created) {
+                Remove-Item -LiteralPath $c -Force -ErrorAction SilentlyContinue
+            }
+            # Only the paths this merge wrote; anything else is not ours to delete.
+            foreach ($staged in $stagedFiles) {
+                Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+            }
+            throw
+        }
+        Write-Host "    Merged into unity_package/ ($($planned.Count) files)"
     }
 }
 finally {
