@@ -16,6 +16,43 @@ use crate::python_host;
 /// delivered.
 const EXTRACT_DEADLINE: Duration = Duration::from_secs(20);
 
+/// Deadline the Python snippet applies to its own worker, in seconds.
+///
+/// Declared here rather than inside the snippet so all three budgets have one
+/// home and their ordering can be checked. It is injected as a local, the same
+/// way the result ceiling is.
+const PY_EXTRACT_TIMEOUT_SECS: u64 = 15;
+
+/// Per-socket timeout applied to yt-dlp's network reads, in seconds.
+///
+/// Reapplied after caller options are merged rather than left as a default a
+/// caller could raise, because it is the main thing bounding how long an
+/// abandoned worker keeps working.
+///
+/// It is not an end-to-end deadline. It covers socket operations only: Python
+/// resolves names through `getaddrinfo`, which takes no timeout argument and
+/// ignores the default socket timeout, so a stalled resolver can outlive it.
+/// Such a worker is a daemon thread and cannot block process exit, but it is
+/// not counted by `IN_FLIGHT` either, so repeated timeouts against a
+/// non-resolving host can accumulate Python threads. Bounding that properly
+/// needs a killable boundary this library deliberately does not have — running
+/// in-process, with no subprocess, is the point of the plugin.
+const PY_SOCKET_TIMEOUT_SECS: u64 = 10;
+
+/// The budgets must fire innermost-first, or an outer one masks the better
+/// error from an inner one: a runaway script should surface as a JS failure and
+/// a stuck extraction as the snippet's own timeout, rather than both arriving as
+/// the Rust backstop. Nothing enforced that while the values lived in three
+/// places, so it is now checked at compile time.
+const _: () = assert!(
+    crate::jsc_provider::JS_TIMEOUT.as_secs() < PY_EXTRACT_TIMEOUT_SECS,
+    "the JS budget must expire before the Python extraction timeout"
+);
+const _: () = assert!(
+    PY_EXTRACT_TIMEOUT_SECS < EXTRACT_DEADLINE.as_secs(),
+    "the Python extraction timeout must expire before the Rust deadline"
+);
+
 /// Ceiling on extractions running at once. Each one owns an OS thread and a
 /// Python thread state, and a timed-out extraction is abandoned rather than
 /// killed, so without a cap a run of hostile URLs would accumulate threads for
@@ -37,6 +74,12 @@ const MAX_IN_FLIGHT: usize = 4;
 /// inflates the format list therefore drives memory here regardless of what the
 /// caller asked for, and the buffer-too-small retry re-runs the entire
 /// extraction to rebuild the same oversized result.
+///
+/// Lower on mobile, where there is far less headroom and an OOM kill is least
+/// survivable.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const MAX_RESULT_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MAX_RESULT_BYTES: usize = 64 * 1024 * 1024;
 
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
@@ -104,7 +147,8 @@ fn classify(py: Python<'_>, err: &PyErr) -> fn(String) -> ExtractError {
 /// the in-snippet timeout fires, the snippet raises, `run_extract` returns and
 /// the permit is released while that extraction's Python thread may still be
 /// running — the snippet logs exactly that case. Those linger until their
-/// socket timeout expires and are not counted here.
+/// socket timeout expires and are not counted here — and a worker stalled in
+/// name resolution is not bounded even by that; see PY_SOCKET_TIMEOUT_SECS.
 struct InFlightPermit;
 
 impl InFlightPermit {
@@ -188,6 +232,12 @@ fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<Str
     locals
         .set_item("_max_result_bytes", MAX_RESULT_BYTES)
         .map_err(|e| ExtractError::Python(format!("set _max_result_bytes: {e}")))?;
+    locals
+        .set_item("_extract_timeout_seconds", PY_EXTRACT_TIMEOUT_SECS)
+        .map_err(|e| ExtractError::Python(format!("set _extract_timeout_seconds: {e}")))?;
+    locals
+        .set_item("_socket_timeout_seconds", PY_SOCKET_TIMEOUT_SECS)
+        .map_err(|e| ExtractError::Python(format!("set _socket_timeout_seconds: {e}")))?;
 
     py.run_bound(EXTRACT_PY, None, Some(&locals)).map_err(|e| {
         let variant = classify(py, &e);
@@ -218,8 +268,10 @@ fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<Str
 //  - `sanitize_info` removes non-JSON-serialisable objects (e.g. datetime) that
 //    appear in some extractors' info_dict.
 //  - `extract_flat=False` ensures full format list resolution.
-// TODO: Pass the extraction timeout and the result-size ceiling through the
-// public ABI; both are currently fixed here and in the Rust constants above.
+// The extraction timeout and result ceiling are deliberately not part of the
+// public ABI. They are DoS controls, so a caller that could widen them could
+// also disable them, and their ordering against the JS budget is an invariant
+// this module owns. Platform differences are handled by the cfg above.
 const EXTRACT_PY: &str = r#"
 import threading as _threading
 import ctypes as _ctypes
@@ -230,15 +282,20 @@ _opts = {
     'no_warnings': True,
     'extract_flat': False,
     'noplaylist': True,
-    # Bound blocking reads so an injected timeout can reach Python bytecode.
-    'socket_timeout': 10,
 }
 
 if _opts_json is not None:
     import json as _json
     _opts.update(_json.loads(_opts_json))
 
-_extract_timeout_seconds = 15
+# Applied after the merge, not before: this bounds blocking reads so an injected
+# cancellation can reach Python bytecode, and it is what limits how long an
+# abandoned worker keeps running. A caller must not be able to raise or remove
+# it, so it is reasserted here rather than set as a default above.
+_opts['socket_timeout'] = _socket_timeout_seconds
+
+# _extract_timeout_seconds and _max_result_bytes are injected by the caller so
+# the budgets have a single home in Rust; see PY_EXTRACT_TIMEOUT_SECS.
 _post_cancel_join_seconds = 1
 _result_object = {}
 
@@ -301,7 +358,8 @@ else:
 
     # join() releases the GIL, giving a worker that is back in Python a chance
     # to receive SystemExit. A blocking read may survive briefly, but
-    # socket_timeout bounds how long it can remain in the background.
+    # socket_timeout bounds how long it can remain in the background, except
+    # while resolving a name, which that timeout does not cover.
     extract_thread.join(timeout=_post_cancel_join_seconds)
     if extract_thread.is_alive():
         _logging.getLogger("unity_dlp").warning(

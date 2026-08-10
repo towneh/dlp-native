@@ -44,7 +44,7 @@ fn wrap_script(script: &str) -> String {
 /// Wall-clock ceiling for one script. Deliberately below the extraction
 /// timeout so a runaway script is reported as a JS failure rather than
 /// surfacing later as a generic extraction timeout.
-const JS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const JS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Heap ceiling for one script.
 ///
@@ -52,6 +52,11 @@ const JS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// which terminates the isolate when a script allocates its way to the ceiling.
 /// That covers allocation-driven runaways only — a script that spins without
 /// allocating never trips it, which is what the watchdog below is for.
+///
+/// Lower on mobile for the same reason the result ceiling is.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const JS_MAX_HEAP_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const JS_MAX_HEAP_BYTES: usize = 256 * 1024 * 1024;
 
 // ── V8 backend (Windows, macOS) ───────────────────────────────────────────────
