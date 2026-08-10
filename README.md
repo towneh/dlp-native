@@ -99,15 +99,17 @@ Failures arrive as typed exceptions:
 
 The concurrency cap is unreachable through the C# wrapper, which funnels every native call through a single worker thread on purpose: CPython pins its interpreter and GIL to whichever thread started it. The cap exists for anything else calling the C ABI directly.
 
-## Platform status
+## Supported platforms
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Windows x86_64 | ✅ Working | V8 (rustyscript) |
-| macOS universal | ✅ Working | arm64 + x86_64 merged into one binary (`lipo`), V8 (rustyscript) |
-| Linux x86_64 | ✅ Working | QuickJS (rquickjs) |
-| Android arm64-v8a | 🔧 In progress | QuickJS (rquickjs), libpython via Termux .deb |
-| iOS arm64 | ✅ Working | QuickJS (rquickjs), packaged as an `.xcframework` covering device + simulator, iOS 16.0+ |
+| Platform | JS engine | Notes |
+|----------|-----------|-------|
+| Windows x86_64 | V8 (rustyscript) | |
+| macOS universal | V8 (rustyscript) | arm64 + x86_64 merged into one binary (`lipo`) |
+| Linux x86_64 | QuickJS (rquickjs) | |
+| Android arm64-v8a | QuickJS (rquickjs) | libpython from the Termux package, shipped beside the plugin |
+| iOS arm64 | QuickJS (rquickjs) | packaged as an `.xcframework` covering device + simulator, iOS 16.0+ |
+
+Every platform in this table is built by CI on each push and published as a release asset.
 
 ## Keeping yt-dlp current
 
