@@ -336,6 +336,11 @@ jobs:
           key: ios-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ios-cargo-
 
+      # No BINDGEN_EXTRA_CLANG_ARGS here, unlike the simulator step below. bindgen
+      # derives its clang target from cargo's TARGET, and rust_to_clang_target maps
+      # aarch64-apple-ios to arm64-apple-ios, which is what clang wants. SDKROOT
+      # supplies the sysroot. The simulator needs the override because that mapping
+      # yields arm64-apple-ios-sim, and clang only accepts -simulator.
       - name: Build iOS device (arm64)
         run: |
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
