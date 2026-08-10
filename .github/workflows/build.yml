@@ -364,6 +364,20 @@ jobs:
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
 
+      # Termux's libpython is built against Termux's own libc compatibility shim,
+      # which ships as a separate package. It has to travel with the interpreter:
+      # without it the loader cannot open libunity_dlp, and Unity reports that as
+      # DllNotFoundException on the plugin rather than on the library actually absent.
+      # Extracted over the same prefix so the staging step below finds both together.
+      - name: Download Termux libandroid-support for aarch64
+        run: |
+          BASE="https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-support"
+          SUPPORT_DEB="$(curl -fsSL "$BASE/" \
+            | grep -oP 'libandroid-support_[^"]+_aarch64\.deb' | sort -V | tail -1)"
+          echo "==> $SUPPORT_DEB"
+          curl -fsSL "$BASE/$SUPPORT_DEB" -o /tmp/libandroid-support.deb
+          cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
+
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
         run: |
           PREFIX="/tmp/termux-extract/data/data/com.termux/files/usr"
@@ -409,6 +423,8 @@ jobs:
           LIBPY="$(find "$TERMUX_PREFIX/lib" -maxdepth 1 -name 'libpython3.*.so*' \
             | sort -V | tail -1)"
           cp -L "$LIBPY" unity_package/Plugins/Android/libs/arm64-v8a/
+          cp -L "$TERMUX_PREFIX/lib/libandroid-support.so" \
+            unity_package/Plugins/Android/libs/arm64-v8a/
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -417,6 +433,7 @@ jobs:
           path: |
             unity_package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so
             unity_package/Plugins/Android/libs/arm64-v8a/libpython*.so*
+            unity_package/Plugins/Android/libs/arm64-v8a/libandroid-support.so
             unity_package/StreamingAssets/dlp/
 
   # ── iOS arm64 ────────────────────────────────────────────────────────────────
