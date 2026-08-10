@@ -1,3 +1,9 @@
+// pyo3's #[pyfunction] wrapper expands an into() around the return value of
+// py_run_js, which clippy reports against the function signature. An item-level
+// allow does not reach the generated wrapper, so it is scoped to this module —
+// which holds only the JS provider.
+#![allow(clippy::useless_conversion)]
+
 use pyo3::prelude::*;
 
 #[cfg(all(feature = "js-v8", feature = "js-quickjs"))]

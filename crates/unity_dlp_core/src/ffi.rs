@@ -42,36 +42,7 @@ fn set_last_error(msg: impl Into<String>) {
     }
 }
 
-#[cfg(test)]
-mod last_error_tests {
-    use super::*;
 
-    #[test]
-    fn short_messages_are_unchanged() {
-        assert_eq!(clamp_error_message("boom".to_string()), "boom");
-    }
-
-    #[test]
-    fn a_message_at_the_limit_is_unchanged() {
-        let msg = "a".repeat(MAX_LAST_ERROR_BYTES);
-        assert_eq!(clamp_error_message(msg.clone()), msg);
-    }
-
-    #[test]
-    fn oversized_messages_are_capped() {
-        let got = clamp_error_message("a".repeat(MAX_LAST_ERROR_BYTES * 3));
-        assert_eq!(got.len(), MAX_LAST_ERROR_BYTES);
-        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
-    }
-
-    #[test]
-    fn truncation_lands_on_a_char_boundary() {
-        // A multi-byte character straddling the cut must not be split.
-        let got = clamp_error_message("é".repeat(MAX_LAST_ERROR_BYTES));
-        assert!(got.len() <= MAX_LAST_ERROR_BYTES);
-        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
-    }
-}
 
 // ── Result type ───────────────────────────────────────────────────────────────
 
@@ -192,6 +163,8 @@ pub unsafe extern "C" fn unity_dlp_init(
     python_home_utf8: *const c_char,
     packages_path_utf8: *const c_char,
 ) -> UnityDlpResult {
+    // SAFETY: the pointer contract is this function's own, documented in its
+    // # Safety section; it is forwarded unchanged to the inner call.
     ffi_guard(UNITY_DLP_ERR_INIT, || unsafe {
         unity_dlp_init_inner(python_home_utf8, packages_path_utf8)
     })
@@ -234,6 +207,8 @@ unsafe fn unity_dlp_init_inner(
     let python_home = if python_home_utf8.is_null() {
         ""
     } else {
+        // SAFETY: non-null (checked above); the caller guarantees a
+        // NUL-terminated string valid for this call.
         match unsafe { CStr::from_ptr(python_home_utf8) }.to_str() {
             Ok(s) => s,
             Err(_) => {
@@ -247,6 +222,8 @@ unsafe fn unity_dlp_init_inner(
     let packages_path = if packages_path_utf8.is_null() {
         ""
     } else {
+        // SAFETY: non-null (checked above); the caller guarantees a
+        // NUL-terminated string valid for this call.
         match unsafe { CStr::from_ptr(packages_path_utf8) }.to_str() {
             Ok(s) => s,
             Err(_) => {
@@ -340,6 +317,8 @@ pub unsafe extern "C" fn unity_dlp_extract(
     out_cap: i32,
     out_len: *mut i32,
 ) -> UnityDlpResult {
+    // SAFETY: the pointer contract is this function's own, documented in its
+    // # Safety section; it is forwarded unchanged to the inner call.
     ffi_guard(UNITY_DLP_ERR_PYTHON, || unsafe {
         unity_dlp_extract_inner(url_utf8, opts_json_utf8, out_buf, out_cap, out_len)
     })
@@ -361,6 +340,8 @@ unsafe fn unity_dlp_extract_inner(
         return UNITY_DLP_ERR_INIT;
     }
 
+    // SAFETY: non-null (checked above); the caller guarantees a
+    // NUL-terminated string valid for this call.
     let url = match unsafe { CStr::from_ptr(url_utf8) }.to_str() {
         Ok(s) => s,
         Err(_) => {
@@ -372,6 +353,8 @@ unsafe fn unity_dlp_extract_inner(
     let opts_json: Option<&str> = if opts_json_utf8.is_null() {
         None
     } else {
+        // SAFETY: non-null (checked above); the caller guarantees a
+        // NUL-terminated string valid for this call.
         match unsafe { CStr::from_ptr(opts_json_utf8) }.to_str() {
             Ok(s) if !s.is_empty() => Some(s),
             _ => None,
@@ -441,6 +424,8 @@ pub unsafe extern "C" fn unity_dlp_last_error(
     out_cap: i32,
     out_len: *mut i32,
 ) -> UnityDlpResult {
+    // SAFETY: the pointer contract is this function's own, documented in its
+    // # Safety section; it is forwarded unchanged to the inner call.
     ffi_guard(UNITY_DLP_ERR_INIT, || unsafe {
         unity_dlp_last_error_inner(out_buf, out_cap, out_len)
     })
@@ -481,4 +466,35 @@ unsafe fn unity_dlp_last_error_inner(
     // inside the caller's buffer.
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len()) };
     UNITY_DLP_OK
+}
+
+#[cfg(test)]
+mod last_error_tests {
+    use super::*;
+
+    #[test]
+    fn short_messages_are_unchanged() {
+        assert_eq!(clamp_error_message("boom".to_string()), "boom");
+    }
+
+    #[test]
+    fn a_message_at_the_limit_is_unchanged() {
+        let msg = "a".repeat(MAX_LAST_ERROR_BYTES);
+        assert_eq!(clamp_error_message(msg.clone()), msg);
+    }
+
+    #[test]
+    fn oversized_messages_are_capped() {
+        let got = clamp_error_message("a".repeat(MAX_LAST_ERROR_BYTES * 3));
+        assert_eq!(got.len(), MAX_LAST_ERROR_BYTES);
+        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
+    }
+
+    #[test]
+    fn truncation_lands_on_a_char_boundary() {
+        // A multi-byte character straddling the cut must not be split.
+        let got = clamp_error_message("é".repeat(MAX_LAST_ERROR_BYTES));
+        assert!(got.len() <= MAX_LAST_ERROR_BYTES);
+        assert!(got.ends_with(LAST_ERROR_TRUNCATED_SUFFIX));
+    }
 }

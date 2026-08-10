@@ -10,6 +10,8 @@ fn main() {
 
     match args.get(1).map(String::as_str) {
         Some("version") | None => {
+            // SAFETY: unity_dlp_version returns a static NUL-terminated string
+            // valid for the lifetime of the process.
             let ver = unsafe {
                 std::ffi::CStr::from_ptr(unity_dlp_version())
                     .to_string_lossy()
@@ -60,7 +62,7 @@ fn main() {
                     url_c.as_ptr(),
                     std::ptr::null(),
                     buf.as_mut_ptr(),
-                    buf.len() as i32,
+                    i32::try_from(buf.len()).unwrap_or(i32::MAX),
                     &mut out_len,
                 )
             };
@@ -77,7 +79,7 @@ fn main() {
                         url_c.as_ptr(),
                         std::ptr::null(),
                         buf.as_mut_ptr(),
-                        buf.len() as i32,
+                        i32::try_from(buf.len()).unwrap_or(i32::MAX),
                         &mut out_len,
                     )
                 };
@@ -91,7 +93,7 @@ fn main() {
                 let err_rc = unsafe {
                     unity_dlp_last_error(
                         err_buf.as_mut_ptr(),
-                        err_buf.len() as i32,
+                        i32::try_from(err_buf.len()).unwrap_or(i32::MAX),
                         &mut err_len,
                     )
                 };

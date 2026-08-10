@@ -107,7 +107,7 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
             let sys = py.import_bound("sys").map_err(|e| format!("import sys: {e}"))?;
             let path = sys.getattr("path").map_err(|e| format!("sys.path get: {e}"))?;
             for (i, segment) in segments.iter().enumerate() {
-                path.call_method1("insert", (i as i32, *segment))
+                path.call_method1("insert", (i, *segment))
                     .map_err(|e| format!("sys.path.insert: {e}"))?;
             }
         }
@@ -133,6 +133,19 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
         );
         Ok(degraded)
     })
+}
+
+
+
+/// Acquire the Python GIL and run `f`.
+///
+/// `init()` must succeed before calling this. Do not hold the GIL across an
+/// `.await` point — release it before any async yield.
+pub fn with_python<F, R>(f: F) -> R
+where
+    F: for<'py> FnOnce(Python<'py>) -> R,
+{
+    Python::with_gil(f)
 }
 
 #[cfg(test)]
@@ -162,15 +175,4 @@ mod tests {
         assert!(parse_packages_path("").is_empty());
         assert!(parse_packages_path("\n\n").is_empty());
     }
-}
-
-/// Acquire the Python GIL and run `f`.
-///
-/// `init()` must succeed before calling this. Do not hold the GIL across an
-/// `.await` point — release it before any async yield.
-pub fn with_python<F, R>(f: F) -> R
-where
-    F: for<'py> FnOnce(Python<'py>) -> R,
-{
-    Python::with_gil(f)
 }

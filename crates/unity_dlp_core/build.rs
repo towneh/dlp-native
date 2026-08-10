@@ -1,6 +1,6 @@
 use std::env;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -33,7 +33,7 @@ fn main() {
 
 // ── cbindgen C header ─────────────────────────────────────────────────────────
 
-fn generate_header(crate_dir: &str, workspace_root: &PathBuf, out_dir: &PathBuf) {
+fn generate_header(crate_dir: &str, workspace_root: &Path, out_dir: &Path) {
     let cbindgen_toml = workspace_root.join("crates/unity_dlp_capi/cbindgen.toml");
     let config = cbindgen::Config::from_file(&cbindgen_toml).expect("cbindgen.toml not found");
 
