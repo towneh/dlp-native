@@ -177,11 +177,7 @@ pub fn extract(url: &str, opts_json: Option<&str>) -> Result<String, ExtractErro
     }
 }
 
-fn run_extract(
-    py: Python<'_>,
-    url: &str,
-    opts_json: Option<&str>,
-) -> Result<String, ExtractError> {
+fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<String, ExtractError> {
     let locals = PyDict::new_bound(py);
     locals
         .set_item("_url", url)

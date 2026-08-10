@@ -74,7 +74,10 @@ fn set_env_for_python(name: &str, value: &str) {
             fn _wputenv_s(name: *const u16, value: *const u16) -> i32;
         }
         let to_wide = |s: &str| -> Vec<u16> {
-            std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+            std::ffi::OsStr::new(s)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
         };
         let wname = to_wide(name);
         let wvalue = to_wide(value);
@@ -104,8 +107,12 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
         // Each entry may be a .zip or a directory; Python handles both.
         let segments = parse_packages_path(packages_path);
         if !segments.is_empty() {
-            let sys = py.import_bound("sys").map_err(|e| format!("import sys: {e}"))?;
-            let path = sys.getattr("path").map_err(|e| format!("sys.path get: {e}"))?;
+            let sys = py
+                .import_bound("sys")
+                .map_err(|e| format!("import sys: {e}"))?;
+            let path = sys
+                .getattr("path")
+                .map_err(|e| format!("sys.path get: {e}"))?;
             for (i, segment) in segments.iter().enumerate() {
                 path.call_method1("insert", (i, *segment))
                     .map_err(|e| format!("sys.path.insert: {e}"))?;
@@ -129,13 +136,15 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
             "python_host: interpreter ready (home={:?} packages={:?}) — unity_dlp_jsc {}",
             python_home,
             packages_path,
-            if degraded.is_none() { "registered" } else { "FAILED (degraded)" }
+            if degraded.is_none() {
+                "registered"
+            } else {
+                "FAILED (degraded)"
+            }
         );
         Ok(degraded)
     })
 }
-
-
 
 /// Acquire the Python GIL and run `f`.
 ///
@@ -162,7 +171,10 @@ mod tests {
 
     #[test]
     fn skips_empty_segments() {
-        assert_eq!(parse_packages_path("\na.zip\n\n\nb.zip\n"), vec!["a.zip", "b.zip"]);
+        assert_eq!(
+            parse_packages_path("\na.zip\n\n\nb.zip\n"),
+            vec!["a.zip", "b.zip"]
+        );
     }
 
     #[test]

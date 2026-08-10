@@ -170,7 +170,9 @@ pub fn register_module(py: Python<'_>) -> Result<(), String> {
         let m = PyModule::new_bound(py, "unity_dlp_js")?;
         m.add_function(wrap_pyfunction!(py_run_js, &m)?)?;
         m.add("JsError", py.get_type_bound::<JsError>())?;
-        py.import_bound("sys")?.getattr("modules")?.set_item("unity_dlp_js", &m)?;
+        py.import_bound("sys")?
+            .getattr("modules")?
+            .set_item("unity_dlp_js", &m)?;
         Ok(())
     })()
     .map_err(|e| format!("register unity_dlp_js: {e}"))

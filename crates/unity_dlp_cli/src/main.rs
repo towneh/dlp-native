@@ -1,8 +1,8 @@
 use std::ffi::CString;
 
 use unity_dlp::{
-    unity_dlp_extract, unity_dlp_init, unity_dlp_last_error, unity_dlp_version,
-    UNITY_DLP_ERR_BUF, UNITY_DLP_OK, UNITY_DLP_OK_DEGRADED,
+    unity_dlp_extract, unity_dlp_init, unity_dlp_last_error, unity_dlp_version, UNITY_DLP_ERR_BUF,
+    UNITY_DLP_OK, UNITY_DLP_OK_DEGRADED,
 };
 
 fn main() {
@@ -45,8 +45,10 @@ fn main() {
                 std::process::exit(1);
             }
             if rc == UNITY_DLP_OK_DEGRADED {
-                eprintln!("warning: init degraded — unity_dlp_jsc shim not registered; \
-                           YouTube JS-challenge path unavailable");
+                eprintln!(
+                    "warning: init degraded — unity_dlp_jsc shim not registered; \
+                           YouTube JS-challenge path unavailable"
+                );
             }
 
             let url_c = CString::new(url.as_str()).expect("url contains NUL byte");

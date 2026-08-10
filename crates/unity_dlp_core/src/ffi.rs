@@ -42,8 +42,6 @@ fn set_last_error(msg: impl Into<String>) {
     }
 }
 
-
-
 // ── Result type ───────────────────────────────────────────────────────────────
 
 pub type UnityDlpResult = i32;
@@ -268,7 +266,12 @@ unsafe fn unity_dlp_init_inner(
 pub extern "C" fn unity_dlp_shutdown() -> UnityDlpResult {
     ffi_guard(UNITY_DLP_OK, || {
         if INIT_STATE
-            .compare_exchange(STATE_READY, STATE_UNINIT, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(
+                STATE_READY,
+                STATE_UNINIT,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
             .is_err()
         {
             return UNITY_DLP_OK;
