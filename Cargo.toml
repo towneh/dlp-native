@@ -45,4 +45,12 @@ split-debuginfo = "packed"
 strip = "debuginfo"
 
 [patch.crates-io]
+# Upstream deno_ast 0.50.3 with its manifest version rewritten to 0.49.0, because
+# rustyscript pins `deno_ast = "=0.49.0"` and an exact requirement will not
+# resolve against 0.50.3. The rewrite is load-bearing: correcting it to the real
+# version breaks resolution.
+#
+# The cost is that anything reading the lockfile sees 0.49.0 for this crate, so a
+# `cargo audit` / `cargo deny` result for deno_ast has to be read against 0.50.3
+# instead. VENDOR.md records both numbers; CI asserts they still hold.
 deno_ast = { path = "crates/deno_ast_patch" }

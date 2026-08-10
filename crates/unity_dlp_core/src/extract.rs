@@ -40,6 +40,20 @@ const PY_EXTRACT_TIMEOUT_SECS: u64 = 15;
 /// in-process, with no subprocess, is the point of the plugin.
 const PY_SOCKET_TIMEOUT_SECS: u64 = 10;
 
+/// Name given to the Python thread each extraction runs on, so live ones can be
+/// counted. Threads are the only handle on this: an abandoned worker is not
+/// referenced from Rust once its caller has gone.
+const PY_WORKER_THREAD_NAME: &str = "unity_dlp_extract_worker";
+
+/// Ceiling on Python extraction workers still alive, abandoned ones included.
+///
+/// Deliberately above `MAX_IN_FLIGHT`: workers that outlive their Rust caller are
+/// expected in small numbers, and the cap is here to stop them accumulating
+/// without bound rather than to keep the count at zero. A worker stalled in name
+/// resolution is the case that reaches this, since `socket_timeout` does not
+/// cover `getaddrinfo`.
+const MAX_LINGERING_PY_WORKERS: usize = 8;
+
 /// The budgets must fire innermost-first, or an outer one masks the better
 /// error from an inner one: a runaway script should surface as a JS failure and
 /// a stuck extraction as the snippet's own timeout, rather than both arriving as
@@ -90,6 +104,7 @@ static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 /// The caller maps these onto C ABI result codes. They are distinguished here,
 /// where the failure is still structured, rather than by inspecting rendered
 /// text further up.
+#[derive(Debug)]
 pub enum ExtractError {
     /// yt-dlp or the interpreter raised something not covered below.
     Python(String),
@@ -279,6 +294,39 @@ pub fn extract(url: &str, opts_json: Option<&str>) -> Result<String, ExtractErro
     }
 }
 
+/// How many extraction workers are still alive on the Python side.
+///
+/// Counted by thread name rather than tracked in Rust, because an abandoned
+/// worker has no Rust owner left to decrement anything.
+fn live_worker_threads(py: Python<'_>) -> Result<usize, ExtractError> {
+    let threading = py
+        .import_bound("threading")
+        .map_err(|e| ExtractError::Python(format!("import threading: {e}")))?;
+    let threads = threading
+        .call_method0("enumerate")
+        .map_err(|e| ExtractError::Python(format!("threading.enumerate: {e}")))?;
+
+    let mut count = 0usize;
+    for thread in threads
+        .iter()
+        .map_err(|e| ExtractError::Python(format!("iterate threads: {e}")))?
+    {
+        let thread = thread.map_err(|e| ExtractError::Python(format!("read thread: {e}")))?;
+        // Propagated rather than treated as "not a worker": swallowing it would
+        // undercount, and an undercount is exactly what lets the ceiling below be
+        // exceeded by the workers it exists to bound.
+        let name = thread
+            .getattr("name")
+            .map_err(|e| ExtractError::Python(format!("read thread name: {e}")))?
+            .extract::<String>()
+            .map_err(|e| ExtractError::Python(format!("thread name is not a string: {e}")))?;
+        if name == PY_WORKER_THREAD_NAME {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<String, ExtractError> {
     let locals = PyDict::new_bound(py);
     locals
@@ -296,6 +344,20 @@ fn run_extract(py: Python<'_>, url: &str, opts_json: Option<&str>) -> Result<Str
     locals
         .set_item("_socket_timeout_seconds", PY_SOCKET_TIMEOUT_SECS)
         .map_err(|e| ExtractError::Python(format!("set _socket_timeout_seconds: {e}")))?;
+    locals
+        .set_item("_worker_thread_name", PY_WORKER_THREAD_NAME)
+        .map_err(|e| ExtractError::Python(format!("set _worker_thread_name: {e}")))?;
+
+    // Refuse rather than add to a pile-up. IN_FLIGHT bounds Rust workers, but a
+    // Python worker outlives its Rust caller whenever it is abandoned mid-stall —
+    // name resolution is the case socket_timeout cannot bound — so the Python side
+    // has to be counted where it is visible.
+    let lingering = live_worker_threads(py)?;
+    if lingering >= MAX_LINGERING_PY_WORKERS {
+        return Err(ExtractError::Busy(format!(
+            "{lingering} extraction workers are still running; try again shortly"
+        )));
+    }
 
     py.run_bound(EXTRACT_PY, None, Some(&locals)).map_err(|e| {
         let variant = classify(py, &e);
@@ -387,6 +449,7 @@ extract_thread = _threading.Thread(
     target=_extract,
     args=(_url, _opts, _result_object, _max_result_bytes),
     daemon=True,
+    name=_worker_thread_name,
 )
 extract_thread.start()
 extract_thread.join(timeout=_extract_timeout_seconds)
@@ -500,6 +563,57 @@ except TimeoutError:
                 classify(py, &err)(String::new()),
                 ExtractError::Python(_)
             ));
+        });
+    }
+    /// A worker abandoned mid-stall has no Rust owner left, so the count has to
+    /// come from Python itself.
+    #[test]
+    fn counts_live_worker_threads_by_name() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let baseline = live_worker_threads(py).expect("count");
+
+            // Built from the constant, so the test cannot drift from the name the
+            // counter looks for.
+            let code = format!(
+                "import threading\n\
+                 stop = threading.Event()\n\
+                 t = threading.Thread(target=stop.wait, name={PY_WORKER_THREAD_NAME:?}, daemon=True)\n\
+                 t.start()\n"
+            );
+            let locals = PyDict::new_bound(py);
+            py.run_bound(&code, None, Some(&locals))
+                .expect("start worker");
+
+            // Thread.start() returns only once the thread is registered, so it is
+            // already visible here — no sleep needed to observe it.
+            assert_eq!(
+                live_worker_threads(py).expect("count"),
+                baseline + 1,
+                "a started worker thread must be visible"
+            );
+
+            // Join rather than sleep: a fixed delay would race the scheduler and
+            // make this fail intermittently under load.
+            py.run_bound(
+                "stop.set()\nt.join(timeout=10)\nalive = t.is_alive()\n",
+                None,
+                Some(&locals),
+            )
+            .expect("stop worker");
+            let alive: bool = locals
+                .get_item("alive")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .expect("read alive");
+            assert!(!alive, "worker did not exit within the join timeout");
+
+            assert_eq!(
+                live_worker_threads(py).expect("count"),
+                baseline,
+                "a finished worker must stop being counted"
+            );
         });
     }
 }
