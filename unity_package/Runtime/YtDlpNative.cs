@@ -21,6 +21,13 @@ namespace YtDlp.Native
         public const int ERR_JS      = -3;
         public const int ERR_NET     = -4;
         public const int ERR_BUF     = -5;
+        // The extraction deadline expired and the native worker was abandoned.
+        // Distinct from ERR_NET so a slow or hostile URL is not mistaken for a
+        // network failure.
+        public const int ERR_TIMEOUT = -6;
+        // Too many extractions already in flight; the call did no work. Retrying
+        // once an in-flight extraction finishes is the expected response.
+        public const int ERR_BUSY    = -7;
 
 #if UNITY_IOS && !UNITY_EDITOR
         private const string LibName = "__Internal";

@@ -194,11 +194,13 @@ namespace YtDlp
             throw rc switch
             {
                 NativeLib.ERR_INIT => new InvalidOperationException($"Library not initialized: {errMsg}"),
-                NativeLib.ERR_PY   => new YtDlpException($"Python error: {errMsg}"),
-                NativeLib.ERR_JS   => new YtDlpException($"JavaScript error: {errMsg}"),
-                NativeLib.ERR_NET  => new YtDlpException($"Network error: {errMsg}"),
+                NativeLib.ERR_PY   => new YtDlpException($"Python error: {errMsg}", rc),
+                NativeLib.ERR_JS   => new YtDlpException($"JavaScript error: {errMsg}", rc),
+                NativeLib.ERR_NET  => new YtDlpException($"Network error: {errMsg}", rc),
                 NativeLib.ERR_BUF  => new InvalidOperationException($"Buffer overflow after retry: {errMsg}"),
-                _                  => new YtDlpException($"Native error ({rc}): {errMsg}"),
+                NativeLib.ERR_TIMEOUT => new TimeoutException($"Extraction timed out: {errMsg}"),
+                NativeLib.ERR_BUSY => new YtDlpException($"Extractor busy: {errMsg}", rc),
+                _                  => new YtDlpException($"Native error ({rc}): {errMsg}", rc),
             };
         }
 
@@ -221,7 +223,22 @@ namespace YtDlp
 
     public sealed class YtDlpException : Exception
     {
+        /// <summary>
+        /// The native result code behind this failure, or 0 when the failure is
+        /// managed-side. Exposed as a plain int because the native constants live
+        /// on an internal type; the values match unity_dlp.h.
+        /// </summary>
+        public int NativeCode { get; }
+
+        /// <summary>
+        /// True when the call did no work and retrying is expected to help. Only
+        /// the busy code qualifies: a too-large result reproduces identically on
+        /// retry, and the extraction failures are not transient by default.
+        /// </summary>
+        public bool IsRetryable => NativeCode == NativeLib.ERR_BUSY;
+
         public YtDlpException(string message) : base(message) { }
+        public YtDlpException(string message, int nativeCode) : base(message) { NativeCode = nativeCode; }
         public YtDlpException(string message, Exception inner) : base(message, inner) { }
     }
 }

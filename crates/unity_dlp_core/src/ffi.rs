@@ -88,6 +88,13 @@ pub const UNITY_DLP_ERR_JS: UnityDlpResult = -3;
 pub const UNITY_DLP_ERR_NET: UnityDlpResult = -4;
 /// out_buf too small; out_len holds the required byte count.
 pub const UNITY_DLP_ERR_BUF: UnityDlpResult = -5;
+/// The extraction deadline expired and the worker was abandoned. Distinct from
+/// ERR_NET so a caller can tell "this URL is slow or hostile" from "the network
+/// failed", and can decline to retry immediately.
+pub const UNITY_DLP_ERR_TIMEOUT: UnityDlpResult = -6;
+/// Too many extractions already in flight. The call did no work; retrying after
+/// one of the in-flight extractions finishes is the expected response.
+pub const UNITY_DLP_ERR_BUSY: UnityDlpResult = -7;
 
 // ── Init / shutdown ───────────────────────────────────────────────────────────
 
@@ -356,17 +363,24 @@ fn unity_dlp_extract_inner(
     let json = match extract::extract(url, opts_json) {
         Ok(j) => j,
         Err(e) => {
-            log::error!("unity_dlp_extract: {e}");
-            set_last_error(&e);
-            // Classify the error so C# can give a typed exception.
-            let code = if e.contains("URLError")
-                || e.contains("ConnectionError")
-                || e.contains("HTTP Error")
-                || e.contains("Network")
-            {
-                UNITY_DLP_ERR_NET
-            } else {
-                UNITY_DLP_ERR_PYTHON
+            let message = e.message();
+            log::error!("unity_dlp_extract: {message}");
+            set_last_error(message);
+            let code = match &e {
+                extract::ExtractError::Timeout(_) => UNITY_DLP_ERR_TIMEOUT,
+                extract::ExtractError::Busy(_) => UNITY_DLP_ERR_BUSY,
+                // Classify the error so C# can give a typed exception.
+                extract::ExtractError::Python(m) => {
+                    if m.contains("URLError")
+                        || m.contains("ConnectionError")
+                        || m.contains("HTTP Error")
+                        || m.contains("Network")
+                    {
+                        UNITY_DLP_ERR_NET
+                    } else {
+                        UNITY_DLP_ERR_PYTHON
+                    }
+                }
             };
             return code;
         }
