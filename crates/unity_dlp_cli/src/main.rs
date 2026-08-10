@@ -61,7 +61,10 @@ fn main() {
             );
 
             if rc == UNITY_DLP_ERR_BUF {
-                buf.resize((out_len as usize).max(buf.len() * 2), 0);
+                // Clamp before widening: a negative length would wrap to a huge
+                // usize and abort the process in resize.
+                let needed = out_len.max(0) as usize;
+                buf.resize(needed.max(buf.len() * 2), 0);
                 rc = unity_dlp_extract(
                     url_c.as_ptr(),
                     std::ptr::null(),
@@ -74,13 +77,21 @@ fn main() {
             if rc != UNITY_DLP_OK {
                 let mut err_buf = vec![0u8; 4096];
                 let mut err_len: i32 = 0;
-                unity_dlp_last_error(
+                let err_rc = unity_dlp_last_error(
                     err_buf.as_mut_ptr(),
                     err_buf.len() as i32,
                     &mut err_len,
                 );
-                let err = std::str::from_utf8(&err_buf[..err_len as usize])
-                    .unwrap_or("<invalid utf-8>");
+                // On anything but OK, out_len carries the *required* length
+                // rather than what was written, so it must not be used to slice
+                // this buffer. Clamp regardless, so the slice is bounded by what
+                // was actually allocated.
+                let err = if err_rc == UNITY_DLP_OK {
+                    let written = (err_len.max(0) as usize).min(err_buf.len());
+                    std::str::from_utf8(&err_buf[..written]).unwrap_or("<invalid utf-8>")
+                } else {
+                    "<error message unavailable>"
+                };
                 eprintln!("extract failed ({rc}): {err}");
                 std::process::exit(1);
             }
