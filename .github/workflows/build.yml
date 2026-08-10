@@ -426,6 +426,39 @@ jobs:
           cp -L "$TERMUX_PREFIX/lib/libandroid-support.so" \
             unity_package/Plugins/Android/libs/arm64-v8a/
 
+      # A library that is needed but never staged does not fail anything here — it
+      # fails at dlopen on the device, reported against whichever library depends on
+      # it. Resolve every NEEDED entry now, against what is staged plus the platform's
+      # own libraries, so that gap is a red build instead of a red headset.
+      - name: Verify staged Android libraries resolve
+        run: |
+          cd unity_package/Plugins/Android/libs/arm64-v8a
+          # Without this the loop below reads nothing and the step passes, which is the
+          # failure it exists to catch.
+          command -v readelf >/dev/null || {
+            echo "::error::readelf is not installed, so this check cannot run"
+            exit 1
+          }
+          platform='^(libc|libm|libdl|liblog|libandroid|libz|libc\+\+_shared|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
+          rc=0
+          for so in *.so; do
+            dyn="$(readelf -d "$so")" || {
+              echo "::error::readelf could not read $so"
+              exit 1
+            }
+            for need in $(printf '%s' "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+              if [ -f "$need" ]; then
+                continue
+              fi
+              if printf '%s' "$need" | grep -qE "$platform"; then
+                continue
+              fi
+              echo "::error::$so needs $need, which is neither staged beside it nor an Android platform library"
+              rc=1
+            done
+          done
+          exit "$rc"
+
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
