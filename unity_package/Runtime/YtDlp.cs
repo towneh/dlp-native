@@ -200,6 +200,7 @@ namespace YtDlp
                 NativeLib.ERR_BUF  => new InvalidOperationException($"Buffer overflow after retry: {errMsg}"),
                 NativeLib.ERR_TIMEOUT => new TimeoutException($"Extraction timed out: {errMsg}"),
                 NativeLib.ERR_BUSY => new YtDlpException($"Extractor busy: {errMsg}", rc),
+                NativeLib.ERR_TOO_LARGE => new YtDlpException($"Result too large: {errMsg}", rc),
                 _                  => new YtDlpException($"Native error ({rc}): {errMsg}", rc),
             };
         }

@@ -95,6 +95,10 @@ pub const UNITY_DLP_ERR_TIMEOUT: UnityDlpResult = -6;
 /// Too many extractions already in flight. The call did no work; retrying after
 /// one of the in-flight extractions finishes is the expected response.
 pub const UNITY_DLP_ERR_BUSY: UnityDlpResult = -7;
+/// The result was larger than the library is willing to materialise. Distinct
+/// from ERR_BUF because a bigger buffer will not help: retrying re-runs the whole
+/// extraction and produces the same oversized result.
+pub const UNITY_DLP_ERR_TOO_LARGE: UnityDlpResult = -8;
 
 // ── Init / shutdown ───────────────────────────────────────────────────────────
 
@@ -373,6 +377,7 @@ fn unity_dlp_extract_inner(
                 extract::ExtractError::Busy(_) => UNITY_DLP_ERR_BUSY,
                 extract::ExtractError::Network(_) => UNITY_DLP_ERR_NET,
                 extract::ExtractError::Js(_) => UNITY_DLP_ERR_JS,
+                extract::ExtractError::TooLarge(_) => UNITY_DLP_ERR_TOO_LARGE,
                 extract::ExtractError::Python(_) => UNITY_DLP_ERR_PYTHON,
             };
         }

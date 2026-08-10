@@ -29,6 +29,16 @@ const EXTRACT_DEADLINE: Duration = Duration::from_secs(20);
 /// — which the library cannot assume serialise their calls.
 const MAX_IN_FLIGHT: usize = 4;
 
+/// Ceiling on the serialised result, in bytes.
+///
+/// `out_cap` bounds the copy into the caller's buffer but never the allocation
+/// behind it: by the time it is consulted, the whole serialised `info_dict`
+/// exists as a Python string and again as a Rust one. A remote side that
+/// inflates the format list therefore drives memory here regardless of what the
+/// caller asked for, and the buffer-too-small retry re-runs the entire
+/// extraction to rebuild the same oversized result.
+const MAX_RESULT_BYTES: usize = 64 * 1024 * 1024;
+
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Why an extraction did not produce a result.
@@ -48,12 +58,19 @@ pub enum ExtractError {
     Timeout(String),
     /// Too many extractions already in flight.
     Busy(String),
+    /// The serialised result exceeded `MAX_RESULT_BYTES`.
+    TooLarge(String),
 }
 
 impl ExtractError {
     pub fn message(&self) -> &str {
         match self {
-            Self::Python(m) | Self::Network(m) | Self::Js(m) | Self::Timeout(m) | Self::Busy(m) => m,
+            Self::Python(m)
+            | Self::Network(m)
+            | Self::Js(m)
+            | Self::Timeout(m)
+            | Self::Busy(m)
+            | Self::TooLarge(m) => m,
         }
     }
 }
@@ -172,11 +189,21 @@ fn run_extract(
     locals
         .set_item("_opts_json", opts_json)
         .map_err(|e| ExtractError::Python(format!("set _opts_json: {e}")))?;
+    locals
+        .set_item("_max_result_bytes", MAX_RESULT_BYTES)
+        .map_err(|e| ExtractError::Python(format!("set _max_result_bytes: {e}")))?;
 
     py.run_bound(EXTRACT_PY, None, Some(&locals)).map_err(|e| {
         let variant = classify(py, &e);
         variant(format!("yt-dlp extraction failed: {e}"))
     })?;
+
+    if let Ok(Some(size)) = locals.get_item("_too_large") {
+        let size = size.extract::<usize>().unwrap_or(0);
+        return Err(ExtractError::TooLarge(format!(
+            "extraction result is {size} bytes, over the {MAX_RESULT_BYTES}-byte limit"
+        )));
+    }
 
     locals
         .get_item("_result")
@@ -195,8 +222,8 @@ fn run_extract(
 //  - `sanitize_info` removes non-JSON-serialisable objects (e.g. datetime) that
 //    appear in some extractors' info_dict.
 //  - `extract_flat=False` ensures full format list resolution.
-// TODO: Pass the extraction timeout through the public ABI and add a dedicated
-// timeout result code instead of keeping it as an implementation detail here.
+// TODO: Pass the extraction timeout and the result-size ceiling through the
+// public ABI; both are currently fixed here and in the Rust constants above.
 const EXTRACT_PY: &str = r#"
 import threading as _threading
 import ctypes as _ctypes
@@ -219,7 +246,7 @@ _extract_timeout_seconds = 15
 _post_cancel_join_seconds = 1
 _result_object = {}
 
-def _extract(_url, _opts, _result_object):
+def _extract(_url, _opts, _result_object, _max_result_bytes):
     # Keep these imports local: pyo3 executes this snippet with distinct globals
     # and locals dictionaries, while Python caches imports process-wide.
     import json
@@ -229,7 +256,14 @@ def _extract(_url, _opts, _result_object):
         with yt_dlp.YoutubeDL(_opts) as _ydl:
             _info = _ydl.extract_info(_url, download=False)
             _info = yt_dlp.YoutubeDL.sanitize_info(_info)
-            _result_object['result'] = json.dumps(_info)
+            _serialised = json.dumps(_info)
+            # Report an oversized result rather than handing it back: the caller
+            # would otherwise copy it again and, on a buffer miss, re-run the
+            # whole extraction to produce the same oversized result.
+            if len(_serialised) > _max_result_bytes:
+                _result_object['too_large'] = len(_serialised)
+            else:
+                _result_object['result'] = _serialised
     except Exception as _error:
         # Thread exceptions are otherwise only printed to stderr. Carry normal
         # extraction failures back to the calling thread.
@@ -240,7 +274,7 @@ def _extract(_url, _opts, _result_object):
 # would let one hostile URL stall host teardown.
 extract_thread = _threading.Thread(
     target=_extract,
-    args=(_url, _opts, _result_object),
+    args=(_url, _opts, _result_object, _max_result_bytes),
     daemon=True,
 )
 extract_thread.start()
@@ -249,7 +283,10 @@ extract_thread.join(timeout=_extract_timeout_seconds)
 if not extract_thread.is_alive():
     if 'error' in _result_object:
         raise _result_object['error']
-    _result = _result_object['result']
+    if 'too_large' in _result_object:
+        _too_large = _result_object['too_large']
+    else:
+        _result = _result_object['result']
 else:
     _thread_id = extract_thread.ident
     if _thread_id is None:
