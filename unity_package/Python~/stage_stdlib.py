@@ -91,8 +91,9 @@ ANDROID_EXCLUDE_MODULES = frozenset(
     }
 )
 
-# lib/ entries the POSIX base auto-detection will consider.
-_PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
+# lib/ entries the POSIX base auto-detection will consider. Shared with
+# stage_android_libs.py so both rank interpreter versions the same way.
+PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
 # Anchored to this file, not the working directory, so the destination does not
 # depend on where the script was invoked from. This file sits at
@@ -172,7 +173,7 @@ def main():
         py_dirs = [
             (int(m[1]), m[0])
             for d in os.listdir(lib_dir)
-            if (m := _PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
+            if (m := PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
         ]
         if not py_dirs:
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")

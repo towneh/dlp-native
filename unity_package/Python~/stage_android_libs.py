@@ -33,8 +33,9 @@ import struct
 import sys
 
 # Same directory, so running this by path puts it on sys.path. Sharing the list keeps
-# a module dropped from the zip from dragging its libraries in here.
-from stage_stdlib import ANDROID_EXCLUDE_MODULES
+# a module dropped from the zip from dragging its libraries in here, and the version
+# ranking from disagreeing about which lib-dynload is staged.
+from stage_stdlib import ANDROID_EXCLUDE_MODULES, PY_LIB_DIR_RE
 
 # Libraries Android itself provides, so they resolve from the platform. Mirrors the
 # list the CI verify step accepts, minus libc++_shared: that is an NDK runtime, and
@@ -44,8 +45,13 @@ PLATFORM = re.compile(
 )
 
 # Staged into Plugins/Android/libs/, which lands in the APK's lib directory and is on
-# the classloader namespace's search path, so extensions resolve these by soname.
-IN_APK = frozenset({"libpython3.14.so", "libandroid-support.so"})
+# the classloader namespace's search path, so extensions resolve these by soname. The
+# interpreter is matched by pattern rather than by version: pinning one would, after a
+# CPython bump, copy libpython itself in here and ship a second one inside the zip.
+#
+# [0-9] rather than \d in both patterns here: the CI check reads them out of this module
+# and hands them to grep -E, which has no \d, and would then quietly match nothing.
+IN_APK = re.compile(r"^(libpython3\.[0-9]+|libandroid-support)\.so$")
 
 ORIGIN = b"$ORIGIN\0"
 
@@ -60,7 +66,10 @@ def _dynamic(data):
     entries is a list of (tag, value, entry_offset); dynstr_offset is where the
     dynamic string table starts in the file.
     """
-    if data[:4] != b"\x7fELF":
+    # EI_CLASS=ELFCLASS64 and EI_DATA=ELFDATA2LSB: every offset below assumes both, and
+    # set_runpath_origin writes back at those offsets, so a 32-bit or big-endian image
+    # has to be refused rather than parsed into arbitrary positions.
+    if data[:6] != b"\x7fELF\x02\x01":
         return None, None
     (e_shoff,) = struct.unpack_from("<Q", data, 0x28)
     e_shentsize, e_shnum = struct.unpack_from("<HH", data, 0x3A)
@@ -100,6 +109,11 @@ def needed_of(path):
     return [_string(data, stroff, v) for tag, v, _ in entries if tag == DT_NEEDED]
 
 
+def siblings_of(path):
+    """What this object needs that only a library staged beside it can satisfy."""
+    return [n for n in needed_of(path) if not PLATFORM.match(n) and not IN_APK.match(n)]
+
+
 def set_runpath_origin(path):
     """Point RUNPATH at $ORIGIN, in place. Returns False if there is none to set.
 
@@ -136,12 +150,17 @@ def set_runpath_origin(path):
 
 def find_lib_dynload(prefix):
     lib = os.path.join(prefix, "lib")
-    for name in sorted(os.listdir(lib), reverse=True):
-        if re.match(r"^python3\.\d+$", name):
-            path = os.path.join(lib, name, "lib-dynload")
-            if os.path.isdir(path):
-                return path
-    sys.exit(f"ERROR: no lib/python3.x/lib-dynload under {prefix!r}")
+    # Rank X.Y numerically; sorting the names puts python3.9 above python3.14, which
+    # would stage libraries into a different tree from the one stage_stdlib.py zips.
+    candidates = [
+        (int(m[1]), m[0])
+        for name in os.listdir(lib)
+        if (m := PY_LIB_DIR_RE.match(name))
+        and os.path.isdir(os.path.join(lib, name, "lib-dynload"))
+    ]
+    if not candidates:
+        sys.exit(f"ERROR: no lib/python3.x/lib-dynload under {prefix!r}")
+    return os.path.join(lib, max(candidates)[1], "lib-dynload")
 
 
 def main():
@@ -167,7 +186,7 @@ def main():
     copied = []
     while queue:
         for need in needed_of(queue.pop()):
-            if need in have or need in IN_APK or PLATFORM.match(need):
+            if need in have or IN_APK.match(need) or PLATFORM.match(need):
                 continue
             src = os.path.join(libdir, need)
             if not os.path.exists(src):
@@ -183,11 +202,26 @@ def main():
             copied.append(need)
             queue.append(dest)
 
-    patched = sum(1 for f in sorted(have) if set_runpath_origin(os.path.join(dynload, f)))
+    patched, stranded = 0, []
+    for f in sorted(have):
+        path = os.path.join(dynload, f)
+        if set_runpath_origin(path):
+            patched += 1
+        elif siblings_of(path):
+            # Nothing to overwrite, and it needs a library from this directory, so the
+            # loader would never look for it. Objects needing only platform libraries
+            # or what the APK carries are fine without one.
+            stranded.append(f)
 
     listed = ", ".join(sorted(copied)) or "(none)"
     print(f"Copied {len(copied)} libraries into lib-dynload: {listed}")
     print(f"Set RUNPATH=$ORIGIN on {patched} shared objects")
+
+    if stranded:
+        sys.exit(
+            "ERROR: no RUNPATH to rewrite, but a library staged beside them is needed by: "
+            f"{', '.join(stranded)}. Add one with patchelf --set-rpath '$ORIGIN'."
+        )
 
 
 if __name__ == "__main__":

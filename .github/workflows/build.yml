@@ -582,6 +582,9 @@ jobs:
       # own libraries, so that gap is a red build instead of a red headset.
       - name: Verify staged Android libraries resolve
         run: |
+          # One definition of what the platform provides, shared with the staging script
+          # and the extension check below.
+          platform="$(python3 -c 'import sys; sys.path.insert(0, "unity_package/Python~"); import stage_android_libs as s; print(s.PLATFORM.pattern)')"
           cd unity_package/Plugins/Android/libs/arm64-v8a
           # Without this the loop below reads nothing and the step passes, which is the
           # failure it exists to catch.
@@ -589,10 +592,6 @@ jobs:
             echo "::error::readelf is not installed, so this check cannot run"
             exit 1
           }
-          # Only libraries Android itself provides. libc++_shared is deliberately
-          # absent: it is an NDK runtime, so anything needing it has to be staged
-          # here rather than borrowed from whatever else the host application ships.
-          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
           rc=0
           # *.so* rather than *.so, so a version-suffixed name is examined here
           # instead of being skipped by the very check meant to reject it.
@@ -630,16 +629,22 @@ jobs:
       # that actually ships.
       - name: Verify staged Python extensions resolve
         run: |
+          # Read both patterns out of the staging script rather than restating them, so
+          # the check and the staging cannot disagree about what resolves.
+          eval "$(python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "unity_package/Python~")
+          import stage_android_libs as s
+          print(f"platform='{s.PLATFORM.pattern}'")
+          print(f"in_apk='{s.IN_APK.pattern}'")
+          PY
+          )"
           work="$(mktemp -d)"
           unzip -q unity_package/StreamingAssets/dlp/stdlib/android-arm64-v8a.zip -d "$work"
           cd "$work"/lib/python3*/lib-dynload || {
             echo "::error::the staged stdlib has no lib-dynload directory"
             exit 1
           }
-          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
-          # Staged into Plugins/Android/libs/, so they land in the APK's lib directory,
-          # which is on the classloader namespace's search path.
-          in_apk='^(libpython3\.[0-9]+|libandroid-support)\.so$'
           rc=0
           # Both patterns: modules and unversioned libraries end in .so, while the
           # libraries copied in from Termux keep names like libz.so.1.
@@ -649,23 +654,29 @@ jobs:
               echo "::error::readelf could not read $so"
               exit 1
             }
-            # Without this the NEEDED entries below could all be present and still not
-            # resolve, because the loader would never look in this directory for them.
-            runpath="$(printf '%s' "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')"
-            if [ "$runpath" != '$ORIGIN' ]; then
-              echo "::error::$so has RUNPATH '${runpath:-none}', so the libraries staged beside it will not be found"
-              rc=1
-            fi
+            siblings=0
             for need in $(printf '%s' "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
-              if [ -f "$need" ]; then
-                continue
-              fi
               if printf '%s' "$need" | grep -qE "$platform|$in_apk"; then
                 continue
               fi
-              echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
-              rc=1
+              # Anything else has to be a file in this directory, which only resolves
+              # if the loader is told to look here — see the RUNPATH check below.
+              siblings=$((siblings + 1))
+              if [ ! -f "$need" ]; then
+                echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
+                rc=1
+              fi
             done
+            # Only demanded where it does something. Most extensions need nothing but
+            # libc and libpython, and requiring it of those would fail a build for a
+            # library that was never going to be looked up here.
+            if [ "$siblings" -gt 0 ]; then
+              runpath="$(printf '%s' "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')"
+              if [ "$runpath" != '$ORIGIN' ]; then
+                echo "::error::$so has RUNPATH '${runpath:-none}', so the $siblings libraries it needs from this directory will not be found"
+                rc=1
+              fi
+            fi
           done
           exit "$rc"
 
