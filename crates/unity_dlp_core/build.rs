@@ -176,15 +176,15 @@ fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
             let fields: Vec<&str> = stdout.split_whitespace().collect();
             assert_eq!(fields.len(), 7, "unexpected git date output: {stdout:?}");
             let epoch: i64 = fields[0].parse().expect("git returned a non-numeric epoch");
-            let mut parts = fields[1..].iter().map(|f| {
-                f.parse::<u16>()
-                    .expect("git returned a non-numeric date field")
-            });
-            let mut next = || parts.next().unwrap();
-            (
-                epoch,
-                (next(), next(), next(), next(), next(), next()),
-            )
+            // Parsed at the width each field is stored in, rather than parsed wide and
+            // cast down: a month that did not fit in a u8 is bad input, not something to
+            // truncate into a plausible-looking date.
+            let year: u16 = fields[1].parse().expect("git returned a non-numeric year");
+            let rest: Vec<u8> = fields[2..]
+                .iter()
+                .map(|f| f.parse().expect("git returned a non-numeric date field"))
+                .collect();
+            (epoch, (year, rest[0], rest[1], rest[2], rest[3], rest[4]))
         })
         .max_by_key(|(epoch, _)| *epoch)
         .expect("no vendored sources to date")
@@ -192,15 +192,8 @@ fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
 
     // The zip format stores MS-DOS timestamps, which start in 1980. Nothing vendored
     // here is anywhere near that, so a date below it means the fields were misread.
-    zip::DateTime::from_date_and_time(
-        newest.0,
-        newest.1 as u8,
-        newest.2 as u8,
-        newest.3 as u8,
-        newest.4 as u8,
-        newest.5 as u8,
-    )
-    .expect("vendored commit date is not representable in a zip entry")
+    zip::DateTime::from_date_and_time(newest.0, newest.1, newest.2, newest.3, newest.4, newest.5)
+        .expect("vendored commit date is not representable in a zip entry")
 }
 
 /// The version hatch-vcs would generate for the pinned `yt-dlp-ejs`: its most
