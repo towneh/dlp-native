@@ -72,7 +72,7 @@ namespace YtDlp
             // Fire-and-forget: stage a newer yt-dlp for the next launch. Never throws and
             // never touches the interpreter that just booted (re-init is unsafe).
             if (AutoUpdate)
-                _ = DlpUpdater.CheckAndStageAsync(DlpVersion, DlpUpdater.ReadPackagesVersion(paths.PackagesPath));
+                _ = DlpUpdater.CheckAndStageAsync(DlpVersion, paths.PackagesPath);
         }
 
         /// <summary>

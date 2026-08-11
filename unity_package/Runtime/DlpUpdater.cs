@@ -157,12 +157,13 @@ namespace YtDlp
         /// <summary>
         /// Checks PyPI for a newer yt-dlp and, if one is compatible and verified, stages it
         /// for the next launch. Safe to fire-and-forget after init — it never throws and
-        /// never touches the running interpreter. <paramref name="currentVersion"/> is the
-        /// version actually loaded this run (<c>YtDlpApi.Version()</c>); nothing is staged
-        /// unless the candidate is strictly newer.
+        /// never touches the running interpreter. <paramref name="packagesPath"/> is the
+        /// list handed to init (<see cref="ResolvePackagesPath"/>), which is what the
+        /// candidate is judged against: nothing is staged unless it beats the yt-dlp that
+        /// list loads, and its yt-dlp-ejs requirement is checked against the ejs behind it.
         /// </summary>
         public static async Task<Outcome> CheckAndStageAsync(
-            string dlpVersion, string currentVersion, CancellationToken cancellationToken = default)
+            string dlpVersion, string packagesPath, CancellationToken cancellationToken = default)
         {
 #if UNITY_IOS && !UNITY_EDITOR
             // The App Store forbids downloading and executing new code at runtime, so iOS is
@@ -175,6 +176,7 @@ namespace YtDlp
                 var meta = await FetchLatestAsync(cancellationToken).ConfigureAwait(false);
                 if (meta == null) return Outcome.Failed;
 
+                var currentVersion = ReadPackagesVersion(packagesPath);
                 if (!string.IsNullOrEmpty(currentVersion)
                     && CompareVersions(meta.Version, currentVersion) <= 0)
                     return Outcome.UpToDate;
@@ -195,7 +197,7 @@ namespace YtDlp
                     return Outcome.Failed;
                 }
 
-                if (!EjsRequirementSatisfied(bytes, meta.Version, dlpVersion, out var incompatReason))
+                if (!EjsRequirementSatisfied(bytes, meta.Version, packagesPath, out var incompatReason))
                 {
                     Debug.Log($"[YtDlp] {incompatReason}");
                     return Outcome.Incompatible;
@@ -299,17 +301,27 @@ namespace YtDlp
             return null;
         }
 
-        // Reads yt-dlp's __version__ (yt_dlp/version.py) from the first entry of a
-        // <see cref="PathListSeparator"/>-delimited packages list that actually carries it —
-        // i.e. the yt-dlp that will load — so the updater compares against the right version.
-        // Accepts a single path too (no separator). Null if none can be read, in which case
-        // any candidate counts as newer.
-        internal static string ReadPackagesVersion(string packagesPath)
+        // Reads yt-dlp's __version__ (yt_dlp/version.py) from the packages list — i.e. the
+        // yt-dlp that will load — so the updater compares against the right version. Null if
+        // none can be read, in which case any candidate counts as newer.
+        private static string ReadPackagesVersion(string packagesPath)
+            => ScanPackages(packagesPath, ReadYtDlpVersionFromZip);
+
+        // Reads yt_dlp_ejs's version from the packages list. A staged wheel replaces only
+        // yt_dlp/, so this finds the ejs in the bundled zip behind it. Both readers scan the
+        // list rather than rebuilding the extraction path: the layout is DlpBootstrap's to
+        // decide, and a second derivation of it here goes stale the moment that changes.
+        private static string ReadBundledEjsVersion(string packagesPath)
+            => ScanPackages(packagesPath, ReadEjsVersionFromZip);
+
+        // First entry of a <see cref="PathListSeparator"/>-delimited packages list that
+        // carries the version being read. Accepts a single path too (no separator).
+        private static string ScanPackages(string packagesPath, Func<string, string> readVersion)
         {
             if (string.IsNullOrEmpty(packagesPath)) return null;
             foreach (var entry in packagesPath.Split(PathListSeparator))
             {
-                var version = ReadYtDlpVersionFromZip(entry.Trim());
+                var version = readVersion(entry.Trim());
                 if (version != null) return version;
             }
             return null;
@@ -317,16 +329,34 @@ namespace YtDlp
 
         private static string ReadYtDlpVersionFromZip(string zipPath)
         {
+            var text = ReadZipEntryText(zipPath, "yt_dlp/version.py");
+            if (text == null) return null;
+            var match = Regex.Match(text, @"__version__\s*=\s*['""]([^'""]+)['""]");
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        private static string ReadEjsVersionFromZip(string zipPath)
+        {
+            var text = ReadZipEntryText(zipPath, "yt_dlp_ejs/_version.py");
+            if (text == null) return null;
+            // The bundle's copy is written as `version = "x.y.z"`; the hatch-vcs output it
+            // stands in for declares `__version__ = version = 'x.y.z'`. Read either shape.
+            var match = Regex.Match(
+                text, @"(?m)^\s*(?:__version__\s*=\s*)?version\s*=\s*['""]([^'""]+)['""]");
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        private static string ReadZipEntryText(string zipPath, string entryName)
+        {
             try
             {
                 if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath)) return null;
                 using var fs      = File.OpenRead(zipPath);
                 using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
-                var entry = archive.GetEntry("yt_dlp/version.py");
+                var entry = archive.GetEntry(entryName);
                 if (entry == null) return null;
                 using var reader = new StreamReader(entry.Open());
-                var match = Regex.Match(reader.ReadToEnd(), @"__version__\s*=\s*['""]([^'""]+)['""]");
-                return match.Success ? match.Groups[1].Value : null;
+                return reader.ReadToEnd();
             }
             catch { return null; }
         }
@@ -338,7 +368,7 @@ namespace YtDlp
         // the requirement can't be read/parsed — mirroring PythonSatisfies: never let through
         // a possibly-incompatible package.
         private static bool EjsRequirementSatisfied(
-            byte[] wheelBytes, string ytDlpVersion, string dlpVersion, out string reason)
+            byte[] wheelBytes, string ytDlpVersion, string packagesPath, out string reason)
         {
             reason = null;
 
@@ -352,7 +382,7 @@ namespace YtDlp
 
             if (string.IsNullOrEmpty(requirement)) return true; // no ejs dependency declared
 
-            var have = ReadBundledEjsVersion(dlpVersion);
+            var have = ReadBundledEjsVersion(packagesPath);
             if (string.IsNullOrEmpty(have))
             {
                 reason = $"yt-dlp {ytDlpVersion} needs yt-dlp-ejs {requirement}; " +
@@ -394,23 +424,6 @@ namespace YtDlp
                 return (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).Trim();
             }
             return null;
-        }
-
-        private static string ReadBundledEjsVersion(string dlpVersion)
-        {
-            try
-            {
-                var bundled = Path.Combine(DlpBootstrap.PersistentDataPath, "dlp", dlpVersion, "yt_dlp.zip");
-                if (!File.Exists(bundled)) return null;
-                using var fs      = File.OpenRead(bundled);
-                using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
-                var entry = archive.GetEntry("yt_dlp_ejs/_version.py");
-                if (entry == null) return null;
-                using var reader = new StreamReader(entry.Open());
-                var m = Regex.Match(reader.ReadToEnd(), @"(?m)^\s*version\s*=\s*['""]([^'""]+)['""]");
-                return m.Success ? m.Groups[1].Value : null;
-            }
-            catch { return null; }
         }
 
         // Conservative PEP 440 check that bundled yt-dlp-ejs `have` satisfies `requirement`
