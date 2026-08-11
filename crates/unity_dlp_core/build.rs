@@ -143,6 +143,11 @@ fn add_python_package(
 /// staying identical across machines and rebuilds, because a commit carries its date
 /// and timezone in the object rather than taking the reader's.
 ///
+/// Which commit is newest is decided on %ct, the UTC epoch, and only the date of that
+/// commit is then rendered. Comparing the rendered fields instead would compare wall
+/// clocks in whatever timezone each commit was made in, where an older commit made at
+/// a positive offset can read later than a newer one made at a negative offset.
+///
 /// Only the submodules are consulted. Taking this repo's HEAD instead would move the
 /// stamp on every commit made here, which is the churn this exists to remove.
 fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
@@ -150,10 +155,16 @@ fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
         .iter()
         .map(|relative| {
             let dir = workspace_root.join(relative);
+            // %ct is epoch seconds and orders the commits; %cd renders the one that wins.
             let out = std::process::Command::new("git")
                 .arg("-C")
                 .arg(&dir)
-                .args(["log", "-1", "--format=%cd", "--date=format:%Y %m %d %H %M %S"])
+                .args([
+                    "log",
+                    "-1",
+                    "--format=%ct %cd",
+                    "--date=format:%Y %m %d %H %M %S",
+                ])
                 .output()
                 .unwrap_or_else(|e| panic!("could not run git to date {relative}: {e}"));
             assert!(
@@ -162,15 +173,22 @@ fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
                  not been initialised has no date to read — run `git submodule update --init`."
             );
             let stdout = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<u16> = stdout
-                .split_whitespace()
-                .map(|f| f.parse().expect("git returned a non-numeric date field"))
-                .collect();
-            assert_eq!(parts.len(), 6, "unexpected git date output: {stdout:?}");
-            (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5])
+            let fields: Vec<&str> = stdout.split_whitespace().collect();
+            assert_eq!(fields.len(), 7, "unexpected git date output: {stdout:?}");
+            let epoch: i64 = fields[0].parse().expect("git returned a non-numeric epoch");
+            let mut parts = fields[1..].iter().map(|f| {
+                f.parse::<u16>()
+                    .expect("git returned a non-numeric date field")
+            });
+            let mut next = || parts.next().unwrap();
+            (
+                epoch,
+                (next(), next(), next(), next(), next(), next()),
+            )
         })
-        .max()
-        .expect("no vendored sources to date");
+        .max_by_key(|(epoch, _)| *epoch)
+        .expect("no vendored sources to date")
+        .1;
 
     // The zip format stores MS-DOS timestamps, which start in 1980. Nothing vendored
     // here is anywhere near that, so a date below it means the fields were misread.
