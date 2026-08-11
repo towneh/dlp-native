@@ -115,7 +115,12 @@ def siblings_of(path):
 
 
 def set_runpath_origin(path):
-    """Point RUNPATH at $ORIGIN, in place. Returns False if there is none to set.
+    """Point DT_RUNPATH at $ORIGIN, in place. Returns False if there is none to set.
+
+    DT_RPATH is deliberately not accepted. Bionic reads DT_RUNPATH only -- it consumes
+    it when resolving a NEEDED entry, and logs DT_RPATH as an "unused DT entry
+    (ignoring)". Rewriting one would produce a file that looks patched and is ignored
+    at load, which is worse than reporting that it has no usable RUNPATH.
 
     The replacement is shorter than what Termux records, so it is written over the
     existing string rather than relocating the string table. Any other dynamic entry
@@ -128,10 +133,9 @@ def set_runpath_origin(path):
     if entries is None:
         return False
 
-    target = next(((t, v) for t, v, _ in entries if t in (DT_RUNPATH, DT_RPATH)), None)
-    if target is None:
+    value = next((v for t, v, _ in entries if t == DT_RUNPATH), None)
+    if value is None:
         return False
-    _, value = target
 
     existing = _string(data, stroff, value)
     if len(existing) + 1 < len(ORIGIN):
@@ -218,9 +222,10 @@ def main():
     print(f"Set RUNPATH=$ORIGIN on {patched} shared objects")
 
     if stranded:
+        # patchelf --set-rpath writes DT_RUNPATH, which is the tag bionic reads.
         sys.exit(
-            "ERROR: no RUNPATH to rewrite, but a library staged beside them is needed by: "
-            f"{', '.join(stranded)}. Add one with patchelf --set-rpath '$ORIGIN'."
+            "ERROR: no DT_RUNPATH to rewrite, but a library staged beside them is needed "
+            f"by: {', '.join(stranded)}. Add one with patchelf --set-rpath '$ORIGIN'."
         )
 
 
