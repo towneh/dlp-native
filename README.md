@@ -14,7 +14,7 @@ YouTube's JS signature challenges are solved via an in-process JS engine: V8 (vi
 
 ### 1. Get the binaries
 
-The native binary and Python bundle are not in the repo — grab them from a release. No Rust or Python toolchain needed, and no GitHub auth. Download the zip for your platform from the [latest release](https://github.com/towneh/dlp-native/releases/latest) and extract its `Plugins/` and `StreamingAssets/` folders into this repo's `unity_package/`:
+The native binaries and the platform stdlib bundles are not in the repo — grab them from a release. No Rust or Python toolchain needed, and no GitHub auth. Download the zip for your platform from the [latest release](https://github.com/towneh/dlp-native/releases/latest) and extract its `Plugins/` and `StreamingAssets/` folders into this repo's `unity_package/`:
 
 | Asset | Platform |
 |-------|----------|
@@ -36,7 +36,9 @@ bash scripts/fetch-artifacts.sh macos        # macOS
 bash scripts/fetch-artifacts.sh linux        # Linux
 ```
 
-Pass several platform names at once (e.g. `windows android`), or omit them all to fetch every platform. Files land directly in `unity_package/`.
+Pass several platform names at once (e.g. `windows android`), or omit them all to fetch every platform. Files land directly in `unity_package/`. Add `-Run <id>` on PowerShell, or `-r <id>` on bash, to take a specific CI run rather than the latest successful one on `main` — which is what you want when the build you care about is on a branch.
+
+Desktop players stage their own stdlib at build time from the host's Python. Android and iOS cannot — theirs is cross-compiled — so the asset carries it, and a player build for either fails outright if it is missing rather than shipping an interpreter with no standard library.
 
 To build the binary yourself instead, see [Building](#building).
 
@@ -106,10 +108,10 @@ The concurrency cap is unreachable through the C# wrapper, which funnels every n
 | Windows x86_64 | V8 (rustyscript) | |
 | macOS universal | V8 (rustyscript) | arm64 + x86_64 merged into one binary (`lipo`) |
 | Linux x86_64 | QuickJS (rquickjs) | |
-| Android arm64-v8a | QuickJS (rquickjs) | libpython from the Termux package, shipped beside the plugin |
+| Android arm64-v8a | QuickJS (rquickjs) | Termux supplies libpython, the libraries its C extensions need and a CA bundle (see [VENDOR.md](VENDOR.md)); the player must target ARM64 |
 | iOS arm64 | QuickJS (rquickjs) | packaged as an `.xcframework` covering device + simulator, iOS 16.0+ |
 
-Every platform in this table is built by CI on each push and published as a release asset.
+CI builds every platform in this table on `main`, on pull requests, and on demand (`gh workflow run Build --ref <branch>`) — a push to a topic branch on its own does not trigger it. Each run keeps the five as artifacts; a release publishes the same five as assets.
 
 ## Keeping yt-dlp current
 
@@ -168,8 +170,11 @@ Windows, macOS, and Linux scripts require [uv](https://github.com/astral-sh/uv) 
 
 ```
 Unity C# (DlpBootstrap.cs + YtDlp.cs)
-    ├── StreamingAssets/dlp/stdlib/<platform>.zip  ─┐ unpacked to
-    ├── StreamingAssets/dlp/yt_dlp.zip             ─┘ persistentDataPath on first run
+    ├── StreamingAssets/dlp/stdlib/<platform>.zip  ─┐ unpacked on first run to
+    ├── StreamingAssets/dlp/yt_dlp.zip             ─┘ persistentDataPath, or to
+    │                                                getFilesDir() on Android, whose
+    │                                                loader will not open a library
+    │                                                from external storage
     └── P/Invoke → unity_dlp.{dll,dylib,so} / libunity_dlp.a
                        └── Rust (unity_dlp_core)
                                ├── PyO3 → CPython 3.14 (interpreter only)

@@ -11,6 +11,46 @@ Update both the submodule commit and this file when bumping.
 `yt-dlp-ejs`'s version is read from its own tag when the bundle is built, so
 bumping the submodule is enough — there is no second copy to keep in step.
 
+Bumping either submodule also changes `unity_package/StreamingAssets/dlp/yt_dlp.zip`,
+which is committed: its entries are stamped with the commit date of the newest
+vendored source, so the archive moves with the pin even where the file contents
+would not.
+
+## Redistributed binaries (Android)
+
+The Android artifact ships more than this project builds. Termux's aarch64 packages
+supply the interpreter and the shared libraries the stdlib's C extensions link
+against, and a CA bundle for them to verify TLS against. These are not submodules and
+are deliberately not pinned here: CI resolves the current version of each from the
+Termux package index at build time, because the pool keeps only the current build and
+a pinned hash goes stale the moment Termux rebuilds. The index is checked against the
+signed release, and each package against the checksum the index publishes.
+
+| Package | Version at the last build | What ships | Why |
+|---|---|---|---|
+| `python` | 3.14.6-1 | `libpython3.14.so` | the interpreter itself |
+| `libandroid-support` | 29-1 | `libandroid-support.so` | libc compatibility shim libpython links against |
+| `zlib` | 1.3.2 | `libz.so.1` | `zlib`, `binascii` |
+| `openssl` | 1:3.6.3 | `libssl.so.3`, `libcrypto.so.3` | `_ssl`, `_hashlib` |
+| `libffi` | 3.5.2 | `libffi.so` | `_ctypes` |
+| `libexpat` | 2.8.3 | `libexpat.so.1` | `pyexpat` |
+| `ca-certificates` | 1:2026.07.16 | `etc/tls/cert.pem` | the trust store `SSL_CERT_FILE` points at |
+
+Versions are what the last Android build resolved, recorded for reference rather than
+as a pin — read the current ones out of a build log, or from
+`dists/stable/main/binary-aarch64/Packages`.
+
+The interpreter and its support shim are staged into `Plugins/Android/libs/arm64-v8a/`,
+so they land in the APK's lib directory, which the loader searches. Everything else
+goes inside the stdlib zip beside `lib-dynload`, where the extensions find them through
+a rewritten `RUNPATH` — see `unity_package/Python~/stage_android_libs.py`.
+
+Licence terms are the upstream projects' own and are not reproduced here:
+[CPython](https://python.org/), [libandroid-support](https://github.com/termux/libandroid-support),
+[zlib](https://www.zlib.net/), [OpenSSL](https://www.openssl.org/),
+[libffi](https://sourceware.org/libffi/), [libexpat](https://libexpat.github.io/),
+and the CA bundle, which is Mozilla's list [as published by curl](https://curl.se/docs/caextract.html).
+
 ## Vendored crate: `crates/deno_ast_patch`
 
 | | |
