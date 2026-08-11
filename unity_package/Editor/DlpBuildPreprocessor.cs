@@ -36,6 +36,9 @@ namespace YtDlp.Editor
                 return;
             }
 
+            if (report.summary.platform == BuildTarget.Android)
+                CheckAndroidAbi();
+
             var pkg = PackageInfo.FindForAssembly(typeof(DlpBuildPreprocessor).Assembly);
             if (pkg == null)
                 throw new BuildFailedException("[YtDlp] Cannot find YtDlp package path.");
@@ -179,7 +182,25 @@ namespace YtDlp.Editor
         // The desktop zips are staged from the host's own interpreter. Android and iOS
         // are cross-compiled against a target Python that cannot run here.
         private static bool CanBuildLocally(string platformId) =>
-            !platformId.StartsWith("android") && !platformId.StartsWith("ios");
+            !platformId.StartsWith("android", System.StringComparison.Ordinal) &&
+            !platformId.StartsWith("ios", System.StringComparison.Ordinal);
+
+        // Everything staged for Android — the interpreter, the extension modules and the
+        // libraries beside them — is arm64-v8a. Another ABI gets no interpreter, and the
+        // first sign of it is an ImportError on a device.
+        private static void CheckAndroidAbi()
+        {
+            var architectures = PlayerSettings.Android.targetArchitectures;
+            if ((architectures & AndroidArchitecture.ARM64) == 0)
+                throw new BuildFailedException(
+                    $"[YtDlp] the staged Python is arm64-v8a only, but this build targets " +
+                    $"{architectures}. Enable ARM64, or URL resolution cannot work in it.");
+
+            if (architectures != AndroidArchitecture.ARM64)
+                Debug.LogWarning(
+                    $"[YtDlp] this build targets {architectures}; only the ARM64 slice carries " +
+                    "a Python, so resolution will be unavailable on the others.");
+        }
 
         private static string FindPython()
         {
