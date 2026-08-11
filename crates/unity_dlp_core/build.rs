@@ -71,8 +71,13 @@ fn bundle_zip(workspace_root: &PathBuf) {
     let zip_path = dest_dir.join("yt_dlp.zip");
     let file = std::fs::File::create(&zip_path).expect("create yt_dlp.zip");
     let mut zip = zip::ZipWriter::new(file);
-    let opts =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    // Entries are stamped with the date of the sources rather than of the build. This
+    // archive is committed, and stamping it with "now" gives identical sources different
+    // bytes every time, so a rebuild or a fetch of the CI artifacts always reads as a
+    // change to a 9 MB binary and a real one cannot be told from the noise.
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored)
+        .last_modified_time(vendored_source_date(workspace_root));
 
     // A bundle missing any of the three packages produces an interpreter that
     // aborts (or degrades) at init, so an absent source is a build failure, not a
@@ -130,6 +135,54 @@ fn add_python_package(
         zip.start_file(&name, opts).unwrap();
         zip.write_all(&std::fs::read(path).unwrap()).unwrap();
     }
+}
+
+/// The commit date of the newest vendored source, used to stamp the bundle's entries.
+///
+/// Reads as a real date — the day the newest thing in the bundle was written — while
+/// staying identical across machines and rebuilds, because a commit carries its date
+/// and timezone in the object rather than taking the reader's.
+///
+/// Only the submodules are consulted. Taking this repo's HEAD instead would move the
+/// stamp on every commit made here, which is the churn this exists to remove.
+fn vendored_source_date(workspace_root: &Path) -> zip::DateTime {
+    let newest = ["vendor/yt-dlp", "vendor/yt-dlp-ejs"]
+        .iter()
+        .map(|relative| {
+            let dir = workspace_root.join(relative);
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(["log", "-1", "--format=%cd", "--date=format:%Y %m %d %H %M %S"])
+                .output()
+                .unwrap_or_else(|e| panic!("could not run git to date {relative}: {e}"));
+            assert!(
+                out.status.success(),
+                "git could not read a commit date from {relative}. A submodule that has \
+                 not been initialised has no date to read — run `git submodule update --init`."
+            );
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<u16> = stdout
+                .split_whitespace()
+                .map(|f| f.parse().expect("git returned a non-numeric date field"))
+                .collect();
+            assert_eq!(parts.len(), 6, "unexpected git date output: {stdout:?}");
+            (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5])
+        })
+        .max()
+        .expect("no vendored sources to date");
+
+    // The zip format stores MS-DOS timestamps, which start in 1980. Nothing vendored
+    // here is anywhere near that, so a date below it means the fields were misread.
+    zip::DateTime::from_date_and_time(
+        newest.0,
+        newest.1 as u8,
+        newest.2 as u8,
+        newest.3 as u8,
+        newest.4 as u8,
+        newest.5 as u8,
+    )
+    .expect("vendored commit date is not representable in a zip entry")
 }
 
 /// The version hatch-vcs would generate for the pinned `yt-dlp-ejs`: its most
