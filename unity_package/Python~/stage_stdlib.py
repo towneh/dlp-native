@@ -69,6 +69,28 @@ ALWAYS_EXCLUDE = frozenset(
     }
 )
 
+# Extension modules dropped from the Android bundle. Termux links each against a
+# library from its own prefix, which is not on the device, so every one of these
+# would fail to dlopen if it were imported at all. Their pure-Python wrappers stay:
+# `import bz2` then raises ImportError, which is what the stdlib importers around
+# them already handle. Verified against a real extraction — blocking _sqlite3, _bz2,
+# _lzma and _zstd leaves it working, and the rest are never imported. Staging them
+# anyway would also fail the CI check that every staged module's NEEDED resolves.
+ANDROID_EXCLUDE_MODULES = frozenset(
+    {
+        "_bz2",
+        "_curses",
+        "_curses_panel",
+        "_dbm",
+        "_gdbm",
+        "_lzma",
+        "_multiprocessing",
+        "_sqlite3",
+        "_zstd",
+        "readline",
+    }
+)
+
 # lib/ entries the POSIX base auto-detection will consider.
 _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
@@ -77,6 +99,29 @@ _PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 # <package>/Python~/, so two levels up is the package root.
 _PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUT_DIR = os.path.join(_PACKAGE_ROOT, "StreamingAssets", "dlp", "stdlib")
+
+
+def write_tree(z, prefix, bases, exclude, drop_modules):
+    """Write each base directory into the archive. Returns (files written, modules dropped)."""
+    total = 0
+    dropped = []
+    for base in bases:
+        base_dir = os.path.join(prefix, base)
+        if not os.path.isdir(base_dir):
+            print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
+            continue
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if d not in exclude]
+            for f in files:
+                # "_bz2.cpython-314-aarch64-linux-android.so" -> "_bz2"
+                if f.endswith(".so") and f.split(".")[0] in drop_modules:
+                    dropped.append(f)
+                    continue
+                full = os.path.join(root, f)
+                arc = os.path.relpath(full, prefix).replace(os.sep, "/")
+                z.write(full, arc)
+                total += 1
+    return total, dropped
 
 
 def main():
@@ -137,21 +182,10 @@ def main():
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
+    drop_modules = ANDROID_EXCLUDE_MODULES if args.platform.startswith("android") else frozenset()
 
-    total = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
-        for base in bases:
-            base_dir = os.path.join(prefix, base)
-            if not os.path.isdir(base_dir):
-                print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
-                continue
-            for root, dirs, files in os.walk(base_dir):
-                dirs[:] = [d for d in dirs if d not in exclude]
-                for f in files:
-                    full = os.path.join(root, f)
-                    arc = os.path.relpath(full, prefix).replace(os.sep, "/")
-                    z.write(full, arc)
-                    total += 1
+        total, dropped = write_tree(z, prefix, bases, exclude, drop_modules)
 
     if total == 0:
         # Leaving the empty archive behind would satisfy the "already staged"
@@ -161,6 +195,11 @@ def main():
 
     size_mb = os.path.getsize(out) / 1_048_576
     print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
+    if dropped:
+        print(
+            f"Dropped {len(dropped)} unsupported extension modules: "
+            f"{', '.join(sorted(f.split('.')[0] for f in dropped))}"
+        )
 
 
 if __name__ == "__main__":
