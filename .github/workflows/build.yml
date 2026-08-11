@@ -469,6 +469,45 @@ jobs:
           echo "$SUPPORT_SHA256  /tmp/libandroid-support.deb" | sha256sum -c -
           cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
 
+      # The stdlib's C extensions link against Termux's own libraries: zlib for zlib and
+      # binascii, OpenSSL for _ssl and _hashlib, libffi for _ctypes, expat for pyexpat.
+      # Without them the modules load and then fail at dlopen on the device, so an
+      # extraction never reaches HTTPS. Extracted over the same prefix, where
+      # stage_android_libs.py picks up whatever the modules actually declare.
+      #
+      # Version and checksum come from the index authenticated above rather than being
+      # pinned here: the pool keeps only the current build, so a pinned hash rots the
+      # moment Termux rebuilds. If the modules ever need a library none of these
+      # packages ships, stage_android_libs.py fails the build and names it.
+      - name: Download Termux runtime libraries for aarch64
+        run: |
+          set -euo pipefail
+          REPO="https://packages.termux.dev/apt/termux-main"
+          for pkg in zlib openssl libffi libexpat; do
+            meta="$(awk -v want="$pkg" 'BEGIN { RS = "" } {
+              name = ""; file = ""; sha = ""
+              for (i = 1; i <= NF; i++) {
+                if ($i == "Package:")  name = $(i + 1)
+                if ($i == "Filename:") file = $(i + 1)
+                if ($i == "SHA256:")   sha  = $(i + 1)
+              }
+              if (name == want) { print file, sha; exit }
+            }' /tmp/termux-packages)"
+            file="${meta%% *}"
+            sha="${meta##* }"
+            if [ -z "$meta" ] || [ "$file" = "$sha" ]; then
+              echo "::error::the authenticated index publishes no aarch64 $pkg package"
+              exit 1
+            fi
+            echo "==> $file"
+            if ! curl -fsSL "$REPO/$file" -o "/tmp/$pkg.deb"; then
+              echo "::error::$file is listed in the index but missing from the pool"
+              exit 1
+            fi
+            echo "$sha  /tmp/$pkg.deb" | sha256sum -c -
+            ( cd /tmp/termux-extract && ar x "/tmp/$pkg.deb" && tar xf data.tar.xz )
+          done
+
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
         run: |
           PREFIX="/tmp/termux-extract/data/data/com.termux/files/usr"
@@ -501,6 +540,14 @@ jobs:
             --platform 26 \
             -- build -p unity_dlp_core --profile release-with-debuginfo \
             --no-default-features --features js-quickjs
+
+      # Copies the libraries the extensions declare in beside them and repoints RUNPATH
+      # at $ORIGIN, since Termux records its own prefix there and the loader will not
+      # search the directory a module was opened from. Runs against the prefix, so the
+      # staging step below simply zips the result.
+      - name: Stage Android runtime libraries into lib-dynload
+        run: |
+          python3 "unity_package/Python~/stage_android_libs.py" --prefix "$TERMUX_PREFIX"
 
       - name: Stage Python stdlib
         run: |
@@ -571,6 +618,52 @@ jobs:
                 continue
               fi
               echo "::error::$so needs $need, which is neither staged beside it nor an Android platform library"
+              rc=1
+            done
+          done
+          exit "$rc"
+
+      # The step above covers the three libraries staged into the APK. The stdlib zip
+      # carries ~65 more shared objects, and those are where this last went wrong: the
+      # extensions resolved, their own dependencies did not, and the first sign of it
+      # was an ImportError on a headset. Same resolution rules, applied to the archive
+      # that actually ships.
+      - name: Verify staged Python extensions resolve
+        run: |
+          work="$(mktemp -d)"
+          unzip -q unity_package/StreamingAssets/dlp/stdlib/android-arm64-v8a.zip -d "$work"
+          cd "$work"/lib/python3*/lib-dynload || {
+            echo "::error::the staged stdlib has no lib-dynload directory"
+            exit 1
+          }
+          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
+          # Staged into Plugins/Android/libs/, so they land in the APK's lib directory,
+          # which is on the classloader namespace's search path.
+          in_apk='^(libpython3\.[0-9]+|libandroid-support)\.so$'
+          rc=0
+          # Both patterns: modules and unversioned libraries end in .so, while the
+          # libraries copied in from Termux keep names like libz.so.1.
+          for so in *.so *.so.*; do
+            [ -e "$so" ] || continue
+            dyn="$(readelf -d "$so")" || {
+              echo "::error::readelf could not read $so"
+              exit 1
+            }
+            # Without this the NEEDED entries below could all be present and still not
+            # resolve, because the loader would never look in this directory for them.
+            runpath="$(printf '%s' "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')"
+            if [ "$runpath" != '$ORIGIN' ]; then
+              echo "::error::$so has RUNPATH '${runpath:-none}', so the libraries staged beside it will not be found"
+              rc=1
+            fi
+            for need in $(printf '%s' "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+              if [ -f "$need" ]; then
+                continue
+              fi
+              if printf '%s' "$need" | grep -qE "$platform|$in_apk"; then
+                continue
+              fi
+              echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
               rc=1
             done
           done
