@@ -10,8 +10,8 @@ using UnityEngine.Networking;
 namespace YtDlp
 {
     /// <summary>
-    /// Unpacks Python stdlib and yt_dlp.zip from StreamingAssets to
-    /// persistentDataPath on first run, then calls unity_dlp_init.
+    /// Unpacks Python stdlib and yt_dlp.zip from StreamingAssets to persistentDataPath
+    /// (getFilesDir() on Android) on first run, then calls unity_dlp_init.
     ///
     /// Both editor and runtime use the same extraction + init path.
     /// The only editor-specific step is resolving the source directory via
@@ -36,9 +36,11 @@ namespace YtDlp
         /// </summary>
         public static bool AutoUpdate = true;
 
-        // Application.persistentDataPath is main-thread-only, but extraction and the
-        // fire-and-forget update check run their continuations on the thread pool. Capture
-        // it once at the (main-thread) entry points and read the cache off-thread.
+        // Where the stdlib and yt_dlp.zip are extracted to. Resolving it is main-thread-only,
+        // but extraction and the fire-and-forget update check run their continuations on the
+        // thread pool. Capture it once at the (main-thread) entry points and read the cache
+        // off-thread. On Android this is getFilesDir(), not Application.persistentDataPath —
+        // see CaptureDataPath.
         internal static string PersistentDataPath { get; private set; }
 
         private static Task _initTask;
@@ -54,7 +56,7 @@ namespace YtDlp
             {
                 if (_initTask == null)
                 {
-                    PersistentDataPath = Application.persistentDataPath;
+                    CaptureDataPath();
                     _initTask = RunInitAsync();
                 }
                 return _initTask;
@@ -80,7 +82,7 @@ namespace YtDlp
         public static async Task<DlpPaths> PrepareAsync()
         {
             // Runs synchronously on the caller's (main) thread up to the first await.
-            PersistentDataPath = Application.persistentDataPath;
+            CaptureDataPath();
 #if UNITY_EDITOR
             // PackageInfo.FindForAssembly must run on the main thread.
             // Resolve it synchronously here, before any await, while we are
@@ -182,6 +184,37 @@ namespace YtDlp
                 using var dst = File.Create(destFile);
                 src.CopyTo(dst);
             }
+        }
+
+        private static void CaptureDataPath()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Application.persistentDataPath is external app storage
+            // (/storage/emulated/0/Android/data/<pkg>/files), and the linker will not dlopen
+            // from there: the namespace permits only /data, /mnt/expand and /data/data/<pkg>.
+            // The stdlib carries CPython's C extensions in lib/python3.x/lib-dynload/, so
+            // extracting to external storage means _struct, _ctypes and friends never load.
+            // getFilesDir() is the internal-storage equivalent and is permitted.
+            try
+            {
+                using var player   = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+                using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                using var files    = activity.Call<AndroidJavaObject>("getFilesDir");
+                var path = files.Call<string>("getAbsolutePath");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    PersistentDataPath = path;
+                    return;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[YtDlp] getFilesDir() failed ({e.Message}); falling back to " +
+                                 "persistentDataPath, where the linker will refuse to load " +
+                                 "CPython's extension modules.");
+            }
+#endif
+            PersistentDataPath = Application.persistentDataPath;
         }
 
         private static string GetPlatformId()
