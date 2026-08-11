@@ -479,11 +479,14 @@ jobs:
       # pinned here: the pool keeps only the current build, so a pinned hash rots the
       # moment Termux rebuilds. If the modules ever need a library none of these
       # packages ships, stage_android_libs.py fails the build and names it.
-      - name: Download Termux runtime libraries for aarch64
+      - name: Download Termux runtime libraries and trust store for aarch64
         run: |
           set -euo pipefail
           REPO="https://packages.termux.dev/apt/termux-main"
-          for pkg in zlib openssl libffi libexpat; do
+          # ca-certificates is the trust store, not a library: Termux's libssl looks for
+          # one under its own prefix, so without it every TLS connection on device fails
+          # verification even though the handshake itself works.
+          for pkg in zlib openssl libffi libexpat ca-certificates; do
             meta="$(awk -v want="$pkg" 'BEGIN { RS = "" } {
               name = ""; file = ""; sha = ""
               for (i = 1; i <= NF; i++) {

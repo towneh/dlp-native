@@ -179,6 +179,27 @@ def main():
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
         bases = [os.path.join("lib", max(py_dirs)[1])]
 
+    # Android's libssl was built for another prefix, so it looks for its trust store
+    # somewhere that does not exist on the device and every TLS connection fails
+    # verification. Carrying the bundle puts it at <pythonHome>/etc/tls/, where the host
+    # points SSL_CERT_FILE. Desktop hosts use their own store.
+    #
+    # Outside the resolution above, and so applied to explicit --bases too: the trust
+    # store is not part of choosing a stdlib layout, and leaving it to the caller means
+    # an Android bundle can be built without one. That failure surfaces on device as a
+    # certificate error from inside an extractor, nowhere near the staging that caused it.
+    if args.platform.startswith("android"):
+        tls_base = os.path.join("etc", "tls")
+        if not os.path.isdir(os.path.join(prefix, tls_base)):
+            sys.exit(
+                f"ERROR: no etc/tls under {prefix!r}. The Android bundle needs the "
+                "Termux ca-certificates package, or TLS fails verification on device."
+            )
+        # Normalised, so a caller passing "etc/tls" on Windows does not add it twice
+        # and leave the archive carrying every certificate two over.
+        if not any(os.path.normpath(b) == os.path.normpath(tls_base) for b in bases):
+            bases.append(tls_base)
+
     out = os.path.join(args.out_dir, args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
