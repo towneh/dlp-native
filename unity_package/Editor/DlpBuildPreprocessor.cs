@@ -9,14 +9,17 @@ namespace YtDlp.Editor
 {
     /// <summary>
     /// Stages the Python stdlib zip for the active build target into
-    /// StreamingAssets/dlp/stdlib/ before each player build.
+    /// StreamingAssets/dlp/stdlib/ before each player build, and removes any other
+    /// platform's — everything under StreamingAssets ships whatever the target is, so
+    /// a stdlib left behind by an earlier build is dead weight in this one.
     ///
-    /// Skips if the zip already exists. Aborts the build if Python cannot
-    /// be found or the script fails. Set DLP_PYTHON_HOME to override the
-    /// Python prefix (otherwise uv python find 3.14 is used).
+    /// Skips building the zip if it already exists. Aborts the build if Python cannot
+    /// be found or the script fails. Set DLP_PYTHON_HOME to override the Python prefix
+    /// (otherwise uv python find 3.14 is used).
     ///
-    /// Android and iOS stdlib zips must be staged by CI — this preprocessor
-    /// only handles the three desktop targets automatically.
+    /// Android and iOS zips are cross-compiled, so they cannot be built here: they come
+    /// from CI, and their absence fails the build rather than shipping a player with no
+    /// interpreter.
     /// </summary>
     public sealed class DlpBuildPreprocessor : IPreprocessBuildWithReport
     {
@@ -28,10 +31,13 @@ namespace YtDlp.Editor
             if (platformId == null)
             {
                 Debug.LogWarning(
-                    $"[YtDlp] {report.summary.platform} stdlib must be staged by CI — " +
-                    "auto-staging only supports Windows/macOS/Linux desktop builds.");
+                    $"[YtDlp] no stdlib is built for {report.summary.platform}, so URL " +
+                    "resolution will be unavailable in this player.");
                 return;
             }
+
+            if (report.summary.platform == BuildTarget.Android)
+                CheckAndroidAbi();
 
             var pkg = PackageInfo.FindForAssembly(typeof(DlpBuildPreprocessor).Assembly);
             if (pkg == null)
@@ -44,6 +50,12 @@ namespace YtDlp.Editor
             // Stage stdlib into the package if it's missing
             if (!File.Exists(stdlibZip))
             {
+                if (!CanBuildLocally(platformId))
+                    throw new BuildFailedException(
+                        $"[YtDlp] {platformId}.zip is not in the package. It is cross-compiled " +
+                        "against a target-specific Python, so it cannot be built on this host — " +
+                        "fetch it from a CI run (scripts/fetch-artifacts).");
+
                 var python = FindPython();
                 if (python == null)
                     throw new BuildFailedException(
@@ -91,6 +103,16 @@ namespace YtDlp.Editor
 
             if (!File.Exists(stdlibZip))
             {
+                if (!CanBuildLocally(platformId))
+                {
+                    // Staging here would run the host's interpreter and write its stdlib
+                    // under the target's name, which fails on device rather than in Unity.
+                    Debug.LogError(
+                        $"[YtDlp] {platformId}.zip is not in the package, and it cannot be " +
+                        "built on this host — fetch it from a CI run (scripts/fetch-artifacts).");
+                    return;
+                }
+
                 var python = FindPython();
                 if (python == null) { Debug.LogError("[YtDlp] Python not found."); return; }
 
@@ -131,6 +153,30 @@ namespace YtDlp.Editor
 
             Debug.Log($"[YtDlp] Copied stdlib/{platformId}.zip → {destStdlib}");
             Debug.Log($"[YtDlp] Copied yt_dlp.zip → {destYtDlp}");
+
+            // Everything under StreamingAssets is packaged for every target, so another
+            // platform's stdlib rides along in a player that can never read it — tens of
+            // megabytes, and only visible by opening the build.
+            foreach (var zip in Directory.GetFiles(projStdlibDir, "*.zip"))
+            {
+                // GetFiles matches a three-character extension as a prefix, so "*.zip"
+                // also returns ".zipx" and friends — filter to the exact extension.
+                if (!zip.EndsWith(".zip", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (Path.GetFileName(zip) == platformId + ".zip") continue;
+
+                var mb = new FileInfo(zip).Length / 1_048_576f;
+                // Through the AssetDatabase where possible, so the asset and its .meta go
+                // together; a file the database has not imported yet falls back to disk.
+                var assetPath = "Assets" + zip.Substring(Application.dataPath.Length)
+                                              .Replace('\\', '/');
+                if (!AssetDatabase.DeleteAsset(assetPath))
+                {
+                    File.Delete(zip);
+                    if (File.Exists(zip + ".meta")) File.Delete(zip + ".meta");
+                }
+                Debug.Log($"[YtDlp] Removed {Path.GetFileName(zip)} ({mb:F1} MB) — " +
+                          $"a {platformId} player cannot read it.");
+            }
         }
 
         private static string ToPlatformId(BuildTarget t) => t switch
@@ -138,8 +184,33 @@ namespace YtDlp.Editor
             BuildTarget.StandaloneWindows or BuildTarget.StandaloneWindows64 => "windows-x86_64",
             BuildTarget.StandaloneOSX     => "macos-universal",
             BuildTarget.StandaloneLinux64 => "linux-x86_64",
+            BuildTarget.Android           => "android-arm64-v8a",
+            BuildTarget.iOS               => "ios-arm64",
             _                             => null,
         };
+
+        // The desktop zips are staged from the host's own interpreter. Android and iOS
+        // are cross-compiled against a target Python that cannot run here.
+        private static bool CanBuildLocally(string platformId) =>
+            !platformId.StartsWith("android", System.StringComparison.Ordinal) &&
+            !platformId.StartsWith("ios", System.StringComparison.Ordinal);
+
+        // Everything staged for Android — the interpreter, the extension modules and the
+        // libraries beside them — is arm64-v8a. Another ABI gets no interpreter, and the
+        // first sign of it is an ImportError on a device.
+        private static void CheckAndroidAbi()
+        {
+            var architectures = PlayerSettings.Android.targetArchitectures;
+            if ((architectures & AndroidArchitecture.ARM64) == 0)
+                throw new BuildFailedException(
+                    $"[YtDlp] the staged Python is arm64-v8a only, but this build targets " +
+                    $"{architectures}. Enable ARM64, or URL resolution cannot work in it.");
+
+            if (architectures != AndroidArchitecture.ARM64)
+                Debug.LogWarning(
+                    $"[YtDlp] this build targets {architectures}; only the ARM64 slice carries " +
+                    "a Python, so resolution will be unavailable on the others.");
+        }
 
         private static string FindPython()
         {

@@ -446,8 +446,18 @@ jobs:
             exit 1
           fi
           echo "$WANT  /tmp/python.deb" | sha256sum -c -
+          # Every deb lands in this one directory, and ar x names the payload after
+          # whatever compression the deb uses (data.tar.xz today, but that is Termux's
+          # choice, not ours). Clear the previous package's members and extract the
+          # tarball this ar x actually produced — a hard-coded name would quietly
+          # re-extract the previous package's payload the day the compression changes.
           mkdir -p /tmp/termux-extract
-          cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
+          cd /tmp/termux-extract
+          rm -f debian-binary control.tar.* data.tar.*
+          ar x /tmp/python.deb
+          data="$(echo data.tar.*)"
+          [ -f "$data" ] || { echo "::error::python.deb carries no data tarball"; exit 1; }
+          tar xf "$data"
 
       # Termux's libpython is built against Termux's own libc compatibility shim,
       # which ships as a separate package. It has to travel with the interpreter:
@@ -467,7 +477,67 @@ jobs:
             exit 1
           fi
           echo "$SUPPORT_SHA256  /tmp/libandroid-support.deb" | sha256sum -c -
-          cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
+          cd /tmp/termux-extract
+          rm -f debian-binary control.tar.* data.tar.*
+          ar x /tmp/libandroid-support.deb
+          data="$(echo data.tar.*)"
+          [ -f "$data" ] || { echo "::error::libandroid-support.deb carries no data tarball"; exit 1; }
+          tar xf "$data"
+
+      # The stdlib's C extensions link against Termux's own libraries: zlib for zlib and
+      # binascii, OpenSSL for _ssl and _hashlib, libffi for _ctypes, expat for pyexpat.
+      # Without them the modules load and then fail at dlopen on the device, so an
+      # extraction never reaches HTTPS. Extracted over the same prefix, where
+      # stage_android_libs.py picks up whatever the modules actually declare.
+      #
+      # Version and checksum come from the index authenticated above rather than being
+      # pinned here: the pool keeps only the current build, so a pinned hash rots the
+      # moment Termux rebuilds. If the modules ever need a library none of these
+      # packages ships, stage_android_libs.py fails the build and names it.
+      - name: Download Termux runtime libraries and trust store for aarch64
+        run: |
+          set -euo pipefail
+          REPO="https://packages.termux.dev/apt/termux-main"
+          # ca-certificates is the trust store, not a library: Termux's libssl looks for
+          # one under its own prefix, so without it every TLS connection on device fails
+          # verification even though the handshake itself works.
+          for pkg in zlib openssl libffi libexpat ca-certificates; do
+            meta="$(awk -v want="$pkg" 'BEGIN { RS = "" } {
+              name = ""; file = ""; sha = ""
+              for (i = 1; i <= NF; i++) {
+                if ($i == "Package:")  name = $(i + 1)
+                if ($i == "Filename:") file = $(i + 1)
+                if ($i == "SHA256:")   sha  = $(i + 1)
+              }
+              if (name == want) { print file, sha; exit }
+            }' /tmp/termux-packages)"
+            file="${meta%% *}"
+            sha="${meta##* }"
+            # Checked apart, so a stanza carrying one field without the other fails
+            # here by name rather than later as a sha256sum parse error.
+            if [ -z "$file" ] || [ "$file" = "$sha" ]; then
+              echo "::error::the authenticated index publishes no aarch64 $pkg package"
+              exit 1
+            fi
+            if [ -z "$sha" ]; then
+              echo "::error::the authenticated index publishes no SHA256 for $file"
+              exit 1
+            fi
+            echo "==> $file"
+            if ! curl -fsSL "$REPO/$file" -o "/tmp/$pkg.deb"; then
+              echo "::error::$file is listed in the index but missing from the pool"
+              exit 1
+            fi
+            echo "$sha  /tmp/$pkg.deb" | sha256sum -c -
+            (
+              cd /tmp/termux-extract
+              rm -f debian-binary control.tar.* data.tar.*
+              ar x "/tmp/$pkg.deb"
+              data="$(echo data.tar.*)"
+              [ -f "$data" ] || { echo "::error::$pkg.deb carries no data tarball"; exit 1; }
+              tar xf "$data"
+            )
+          done
 
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
         run: |
@@ -502,6 +572,14 @@ jobs:
             -- build -p unity_dlp_core --profile release-with-debuginfo \
             --no-default-features --features js-quickjs
 
+      # Copies the libraries the extensions declare in beside them and repoints RUNPATH
+      # at $ORIGIN, since Termux records its own prefix there and the loader will not
+      # search the directory a module was opened from. Runs against the prefix, so the
+      # staging step below simply zips the result.
+      - name: Stage Android runtime libraries into lib-dynload
+        run: |
+          python3 "unity_package/Python~/stage_android_libs.py" --prefix "$TERMUX_PREFIX"
+
       - name: Stage Python stdlib
         run: |
           python3 "unity_package/Python~/stage_stdlib.py" android-arm64-v8a --prefix "$TERMUX_PREFIX"
@@ -535,6 +613,9 @@ jobs:
       # own libraries, so that gap is a red build instead of a red headset.
       - name: Verify staged Android libraries resolve
         run: |
+          # One definition of what the platform provides, shared with the staging script
+          # and the extension check below.
+          platform="$(python3 -c 'import sys; sys.path.insert(0, "unity_package/Python~"); import stage_android_libs as s; print(s.PLATFORM.pattern)')"
           cd unity_package/Plugins/Android/libs/arm64-v8a
           # Without this the loop below reads nothing and the step passes, which is the
           # failure it exists to catch.
@@ -542,10 +623,6 @@ jobs:
             echo "::error::readelf is not installed, so this check cannot run"
             exit 1
           }
-          # Only libraries Android itself provides. libc++_shared is deliberately
-          # absent: it is an NDK runtime, so anything needing it has to be staged
-          # here rather than borrowed from whatever else the host application ships.
-          platform='^(libc|libm|libdl|liblog|libandroid|libz|libGLESv[123]|libEGL|libOpenSLES|libvulkan)\.so$'
           rc=0
           # *.so* rather than *.so, so a version-suffixed name is examined here
           # instead of being skipped by the very check meant to reject it.
@@ -573,6 +650,70 @@ jobs:
               echo "::error::$so needs $need, which is neither staged beside it nor an Android platform library"
               rc=1
             done
+          done
+          exit "$rc"
+
+      # The step above covers the three libraries staged into the APK. The stdlib zip
+      # carries ~65 more shared objects, and those are where this last went wrong: the
+      # extensions resolved, their own dependencies did not, and the first sign of it
+      # was an ImportError on a headset. Same resolution rules, applied to the archive
+      # that actually ships.
+      - name: Verify staged Python extensions resolve
+        run: |
+          # Read both patterns out of the staging script rather than restating them, so
+          # the check and the staging cannot disagree about what resolves.
+          eval "$(python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "unity_package/Python~")
+          import stage_android_libs as s
+          print(f"platform='{s.PLATFORM.pattern}'")
+          print(f"in_apk='{s.IN_APK.pattern}'")
+          PY
+          )"
+          work="$(mktemp -d)"
+          unzip -q unity_package/StreamingAssets/dlp/stdlib/android-arm64-v8a.zip -d "$work"
+          # The runtime points SSL_CERT_FILE at exactly this path, so its absence is
+          # every TLS connection failing verification on device.
+          [ -s "$work/etc/tls/cert.pem" ] || {
+            echo "::error::the staged stdlib carries no etc/tls/cert.pem, so TLS fails verification on device"
+            exit 1
+          }
+          cd "$work"/lib/python3*/lib-dynload || {
+            echo "::error::the staged stdlib has no lib-dynload directory"
+            exit 1
+          }
+          rc=0
+          # Both patterns: modules and unversioned libraries end in .so, while the
+          # libraries copied in from Termux keep names like libz.so.1.
+          for so in *.so *.so.*; do
+            [ -e "$so" ] || continue
+            dyn="$(readelf -d "$so")" || {
+              echo "::error::readelf could not read $so"
+              exit 1
+            }
+            siblings=0
+            for need in $(printf '%s' "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+              if printf '%s' "$need" | grep -qE "$platform|$in_apk"; then
+                continue
+              fi
+              # Anything else has to be a file in this directory, which only resolves
+              # if the loader is told to look here — see the RUNPATH check below.
+              siblings=$((siblings + 1))
+              if [ ! -f "$need" ]; then
+                echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
+                rc=1
+              fi
+            done
+            # Only demanded where it does something. Most extensions need nothing but
+            # libc and libpython, and requiring it of those would fail a build for a
+            # library that was never going to be looked up here.
+            if [ "$siblings" -gt 0 ]; then
+              runpath="$(printf '%s' "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')"
+              if [ "$runpath" != "\$ORIGIN" ]; then
+                echo "::error::$so has RUNPATH '${runpath:-none}', so the $siblings libraries it needs from this directory will not be found"
+                rc=1
+              fi
+            fi
           done
           exit "$rc"
 

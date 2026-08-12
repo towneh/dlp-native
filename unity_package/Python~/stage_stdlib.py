@@ -69,14 +69,60 @@ ALWAYS_EXCLUDE = frozenset(
     }
 )
 
-# lib/ entries the POSIX base auto-detection will consider.
-_PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
+# Extension modules dropped from the Android bundle. Termux links each against a
+# library from its own prefix, which is not on the device, so every one of these
+# would fail to dlopen if it were imported at all. Their pure-Python wrappers stay:
+# `import bz2` then raises ImportError, which is what the stdlib importers around
+# them already handle. Verified against a real extraction — blocking _sqlite3, _bz2,
+# _lzma and _zstd leaves it working, and the rest are never imported. Staging them
+# anyway would also fail the CI check that every staged module's NEEDED resolves.
+ANDROID_EXCLUDE_MODULES = frozenset(
+    {
+        "_bz2",
+        "_curses",
+        "_curses_panel",
+        "_dbm",
+        "_gdbm",
+        "_lzma",
+        "_multiprocessing",
+        "_sqlite3",
+        "_zstd",
+        "readline",
+    }
+)
+
+# lib/ entries the POSIX base auto-detection will consider. Shared with
+# stage_android_libs.py so both rank interpreter versions the same way.
+PY_LIB_DIR_RE = re.compile(r"^python3\.(\d+)$")
 
 # Anchored to this file, not the working directory, so the destination does not
 # depend on where the script was invoked from. This file sits at
 # <package>/Python~/, so two levels up is the package root.
 _PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUT_DIR = os.path.join(_PACKAGE_ROOT, "StreamingAssets", "dlp", "stdlib")
+
+
+def write_tree(z, prefix, bases, exclude, drop_modules):
+    """Write each base directory into the archive. Returns (files written, modules dropped)."""
+    total = 0
+    dropped = []
+    for base in bases:
+        base_dir = os.path.join(prefix, base)
+        if not os.path.isdir(base_dir):
+            print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
+            continue
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if d not in exclude]
+            for f in files:
+                # "_bz2.cpython-314-aarch64-linux-android.so" -> "_bz2"
+                if f.endswith(".so") and f.split(".")[0] in drop_modules:
+                    dropped.append(f)
+                    continue
+                full = os.path.join(root, f)
+                arc = os.path.relpath(full, prefix).replace(os.sep, "/")
+                z.write(full, arc)
+                total += 1
+    return total, dropped
 
 
 def main():
@@ -127,31 +173,46 @@ def main():
         py_dirs = [
             (int(m[1]), m[0])
             for d in os.listdir(lib_dir)
-            if (m := _PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
+            if (m := PY_LIB_DIR_RE.match(d)) and os.path.isdir(os.path.join(lib_dir, d))
         ]
         if not py_dirs:
             sys.exit(f"ERROR: no python3.x directory found in {lib_dir!r}")
         bases = [os.path.join("lib", max(py_dirs)[1])]
 
+    # Android's libssl was built for another prefix, so it looks for its trust store
+    # somewhere that does not exist on the device and every TLS connection fails
+    # verification. Carrying the bundle puts it at <pythonHome>/etc/tls/, where the host
+    # points SSL_CERT_FILE. Desktop hosts use their own store.
+    #
+    # Outside the resolution above, and so applied to explicit --bases too: the trust
+    # store is not part of choosing a stdlib layout, and leaving it to the caller means
+    # an Android bundle can be built without one. That failure surfaces on device as a
+    # certificate error from inside an extractor, nowhere near the staging that caused it.
+    # Kept apart from the stdlib bases: were it one of them, its certificates would
+    # count towards the staged-nothing guard below, and an empty or mistyped --bases
+    # would produce an archive holding a trust store and no standard library.
+    extra_bases = []
+    if args.platform.startswith("android"):
+        tls_base = os.path.join("etc", "tls")
+        if not os.path.isdir(os.path.join(prefix, tls_base)):
+            sys.exit(
+                f"ERROR: no etc/tls under {prefix!r}. The Android bundle needs the "
+                "Termux ca-certificates package, or TLS fails verification on device."
+            )
+        # Normalised, so a caller passing "etc/tls" on Windows does not add it twice
+        # and leave the archive carrying every certificate two over.
+        if not any(os.path.normpath(b) == os.path.normpath(tls_base) for b in bases):
+            extra_bases.append(tls_base)
+
     out = os.path.join(args.out_dir, args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     exclude = set(args.exclude_dirs) | ALWAYS_EXCLUDE
+    drop_modules = ANDROID_EXCLUDE_MODULES if args.platform.startswith("android") else frozenset()
 
-    total = 0
     with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
-        for base in bases:
-            base_dir = os.path.join(prefix, base)
-            if not os.path.isdir(base_dir):
-                print(f"WARNING: {base_dir!r} not found, skipping", file=sys.stderr)
-                continue
-            for root, dirs, files in os.walk(base_dir):
-                dirs[:] = [d for d in dirs if d not in exclude]
-                for f in files:
-                    full = os.path.join(root, f)
-                    arc = os.path.relpath(full, prefix).replace(os.sep, "/")
-                    z.write(full, arc)
-                    total += 1
+        total, dropped = write_tree(z, prefix, bases, exclude, drop_modules)
+        extra_total, _ = write_tree(z, prefix, extra_bases, exclude, frozenset())
 
     if total == 0:
         # Leaving the empty archive behind would satisfy the "already staged"
@@ -160,7 +221,12 @@ def main():
         sys.exit(f"ERROR: staged nothing from {prefix!r} (bases: {bases})")
 
     size_mb = os.path.getsize(out) / 1_048_576
-    print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
+    print(f"Staged {total + extra_total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
+    if dropped:
+        print(
+            f"Dropped {len(dropped)} unsupported extension modules: "
+            f"{', '.join(sorted({f.split('.')[0] for f in dropped}))}"
+        )
 
 
 if __name__ == "__main__":

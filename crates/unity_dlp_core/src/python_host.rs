@@ -21,6 +21,10 @@ static INIT_RESULT: OnceCell<InitOutcome> = OnceCell::new();
 /// up but the `unity_dlp_jsc` shim failed to import (degraded — extraction still
 /// works, YouTube JS-challenge path does not), and `Err` on a hard failure.
 ///
+/// Also pre-imports `yt_dlp` to warm the process-wide import cache, so the
+/// first extraction does not pay the from-zip import out of its own budget; a
+/// failure there is logged and non-fatal.
+///
 /// Idempotent: the first call runs initialisation; subsequent calls return the
 /// cached result regardless of the arguments passed. Never calls Py_Finalize.
 pub fn init(python_home: &str, packages_path: &str) -> InitOutcome {
@@ -87,6 +91,29 @@ fn set_env_for_python(name: &str, value: &str) {
     }
 }
 
+/// Point OpenSSL at the CA bundle shipped beside the stdlib, when there is one.
+///
+/// A libssl built for another prefix looks for its trust store where that prefix would
+/// have been, and finds nothing on a device that is not it. Every TLS connection then
+/// fails verification — the handshake works, so this surfaces as
+/// `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate` from deep inside
+/// an extractor rather than as anything resembling a missing file.
+///
+/// Only the platforms whose stdlib carries the bundle are affected: elsewhere the file
+/// is absent and the variable stays unset, leaving Python's own defaults alone (on
+/// Windows that is the system certificate store, which already works).
+fn set_ca_bundle(python_home: &str) {
+    let bundle = std::path::Path::new(python_home)
+        .join("etc")
+        .join("tls")
+        .join("cert.pem");
+    if bundle.is_file() {
+        // Read by OpenSSL when the default verify paths are loaded, which
+        // ssl.create_default_context does — so this reaches yt-dlp's own sessions.
+        set_env_for_python("SSL_CERT_FILE", &bundle.to_string_lossy());
+    }
+}
+
 fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
     // Set PYTHONHOME before Py_Initialize so the embedded interpreter can locate
     // its stdlib and C-extension modules (.pyd / .so in the DLLs / lib-dynload dir).
@@ -94,6 +121,7 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
     // function for why the Win32-only path silently fails inside a long-lived host.
     if !python_home.is_empty() {
         set_env_for_python("PYTHONHOME", python_home);
+        set_ca_bundle(python_home);
     }
 
     // pyo3::prepare_freethreaded_python calls Py_InitializeEx(0). We do this
@@ -131,6 +159,17 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
             Ok(()) => None,
             Err(e) => Some(format!("import unity_dlp_jsc: {e}")),
         };
+
+        // Warm the process-wide import cache while init — unbudgeted, and already
+        // asynchronous for the shipped Unity wrapper — is the one paying. The
+        // first extraction otherwise imports yt-dlp from the zip inside its own
+        // budgeted worker, and on mobile hardware that import alone can consume
+        // most of the extraction timeout. Failure is deliberately soft: if
+        // yt-dlp genuinely cannot import, the first extraction reports the same
+        // error with extraction attribution, which is where callers look for it.
+        if let Err(e) = py.run_bound("import yt_dlp", None, None) {
+            log::warn!("python_host: yt_dlp warm-up import failed: {e}");
+        }
 
         log::debug!(
             "python_host: interpreter ready (home={:?} packages={:?}) — unity_dlp_jsc {}",
