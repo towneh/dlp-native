@@ -179,10 +179,32 @@ def test_entries_are_stored_uncompressed(run_stage, prefix):
 def test_output_is_named_after_the_platform(run_stage, prefix):
     write(prefix / "lib" / "python3.14" / "os.py")
 
+    out = run_stage("ios-arm64", "--prefix", str(prefix))
+
+    assert out.name == "ios-arm64.zip"
+    assert out.is_file()
+
+
+# ── Android trust store ──────────────────────────────────────────────────────
+
+
+def test_android_bundles_the_trust_store(run_stage, prefix):
+    write(prefix / "lib" / "python3.14" / "os.py")
+    write(prefix / "etc" / "tls" / "cert.pem")
+
     out = run_stage("android-arm64-v8a", "--prefix", str(prefix))
 
-    assert out.name == "android-arm64-v8a.zip"
-    assert out.is_file()
+    assert names(out) == {"lib/python3.14/os.py", "etc/tls/cert.pem"}
+
+
+def test_android_without_a_trust_store_is_an_error(run_stage, prefix, out_dir):
+    write(prefix / "lib" / "python3.14" / "os.py")
+
+    with pytest.raises(SystemExit) as exc:
+        run_stage("android-arm64-v8a", "--prefix", str(prefix))
+
+    assert "etc/tls" in str(exc.value)
+    assert not (out_dir / "android-arm64-v8a.zip").exists()
 
 
 # ── Failure to stage anything ────────────────────────────────────────────────
