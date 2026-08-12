@@ -422,8 +422,9 @@ _result_object = {}
 def _extract(_url, _opts, _result_object, _max_result_bytes):
     # Keep these imports local: pyo3 executes this snippet with distinct globals
     # and locals dictionaries, while Python caches imports process-wide. init
-    # pre-imports yt_dlp, so this import is a cache hit rather than the first
-    # extraction paying the from-zip import out of its own budget.
+    # pre-imports yt_dlp, so this is normally a cache hit; if that warm-up
+    # failed, this import is the one that pays the from-zip cost — and the one
+    # whose error reaches the caller with extraction attribution.
     import json
     import yt_dlp
 

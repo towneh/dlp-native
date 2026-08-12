@@ -143,7 +143,11 @@ def set_runpath_origin(path):
 
     clobbered = range(value, value + len(ORIGIN))
     for tag, other, _ in entries:
-        if tag in _STRING_TAGS and other != value and other in clobbered:
+        if tag not in _STRING_TAGS or other == value:
+            continue
+        # A tail can be shared from either side: an entry starting inside the bytes
+        # being written, or one starting earlier whose string runs through them.
+        if other in clobbered or other < value <= other + len(_string(data, stroff, other)):
             sys.exit(f"ERROR: {path}: rewriting RUNPATH would corrupt a shared string at +{other}")
 
     data[stroff + value : stroff + value + len(ORIGIN)] = ORIGIN

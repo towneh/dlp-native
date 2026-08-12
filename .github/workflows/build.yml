@@ -446,8 +446,18 @@ jobs:
             exit 1
           fi
           echo "$WANT  /tmp/python.deb" | sha256sum -c -
+          # Every deb lands in this one directory, and ar x names the payload after
+          # whatever compression the deb uses (data.tar.xz today, but that is Termux's
+          # choice, not ours). Clear the previous package's members and extract the
+          # tarball this ar x actually produced — a hard-coded name would quietly
+          # re-extract the previous package's payload the day the compression changes.
           mkdir -p /tmp/termux-extract
-          cd /tmp/termux-extract && ar x /tmp/python.deb && tar xf data.tar.xz
+          cd /tmp/termux-extract
+          rm -f debian-binary control.tar.* data.tar.*
+          ar x /tmp/python.deb
+          data="$(echo data.tar.*)"
+          [ -f "$data" ] || { echo "::error::python.deb carries no data tarball"; exit 1; }
+          tar xf "$data"
 
       # Termux's libpython is built against Termux's own libc compatibility shim,
       # which ships as a separate package. It has to travel with the interpreter:
@@ -467,7 +477,12 @@ jobs:
             exit 1
           fi
           echo "$SUPPORT_SHA256  /tmp/libandroid-support.deb" | sha256sum -c -
-          cd /tmp/termux-extract && ar x /tmp/libandroid-support.deb && tar xf data.tar.xz
+          cd /tmp/termux-extract
+          rm -f debian-binary control.tar.* data.tar.*
+          ar x /tmp/libandroid-support.deb
+          data="$(echo data.tar.*)"
+          [ -f "$data" ] || { echo "::error::libandroid-support.deb carries no data tarball"; exit 1; }
+          tar xf "$data"
 
       # The stdlib's C extensions link against Termux's own libraries: zlib for zlib and
       # binascii, OpenSSL for _ssl and _hashlib, libffi for _ctypes, expat for pyexpat.
@@ -508,7 +523,14 @@ jobs:
               exit 1
             fi
             echo "$sha  /tmp/$pkg.deb" | sha256sum -c -
-            ( cd /tmp/termux-extract && ar x "/tmp/$pkg.deb" && tar xf data.tar.xz )
+            (
+              cd /tmp/termux-extract
+              rm -f debian-binary control.tar.* data.tar.*
+              ar x "/tmp/$pkg.deb"
+              data="$(echo data.tar.*)"
+              [ -f "$data" ] || { echo "::error::$pkg.deb carries no data tarball"; exit 1; }
+              tar xf "$data"
+            )
           done
 
       - name: Set up PYO3_CROSS_LIB_DIR for Android arm64
