@@ -21,6 +21,10 @@ static INIT_RESULT: OnceCell<InitOutcome> = OnceCell::new();
 /// up but the `unity_dlp_jsc` shim failed to import (degraded — extraction still
 /// works, YouTube JS-challenge path does not), and `Err` on a hard failure.
 ///
+/// Also pre-imports `yt_dlp` to warm the process-wide import cache, so the
+/// first extraction does not pay the from-zip import out of its own budget; a
+/// failure there is logged and non-fatal.
+///
 /// Idempotent: the first call runs initialisation; subsequent calls return the
 /// cached result regardless of the arguments passed. Never calls Py_Finalize.
 pub fn init(python_home: &str, packages_path: &str) -> InitOutcome {
@@ -155,6 +159,17 @@ fn do_init(python_home: &str, packages_path: &str) -> InitOutcome {
             Ok(()) => None,
             Err(e) => Some(format!("import unity_dlp_jsc: {e}")),
         };
+
+        // Warm the process-wide import cache while init — unbudgeted, and already
+        // asynchronous for the shipped Unity wrapper — is the one paying. The
+        // first extraction otherwise imports yt-dlp from the zip inside its own
+        // budgeted worker, and on mobile hardware that import alone can consume
+        // most of the extraction timeout. Failure is deliberately soft: if
+        // yt-dlp genuinely cannot import, the first extraction reports the same
+        // error with extraction attribution, which is where callers look for it.
+        if let Err(e) = py.run_bound("import yt_dlp", None, None) {
+            log::warn!("python_host: yt_dlp warm-up import failed: {e}");
+        }
 
         log::debug!(
             "python_host: interpreter ready (home={:?} packages={:?}) — unity_dlp_jsc {}",
