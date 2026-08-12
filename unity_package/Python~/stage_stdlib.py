@@ -188,6 +188,10 @@ def main():
     # store is not part of choosing a stdlib layout, and leaving it to the caller means
     # an Android bundle can be built without one. That failure surfaces on device as a
     # certificate error from inside an extractor, nowhere near the staging that caused it.
+    # Kept apart from the stdlib bases: were it one of them, its certificates would
+    # count towards the staged-nothing guard below, and an empty or mistyped --bases
+    # would produce an archive holding a trust store and no standard library.
+    extra_bases = []
     if args.platform.startswith("android"):
         tls_base = os.path.join("etc", "tls")
         if not os.path.isdir(os.path.join(prefix, tls_base)):
@@ -198,7 +202,7 @@ def main():
         # Normalised, so a caller passing "etc/tls" on Windows does not add it twice
         # and leave the archive carrying every certificate two over.
         if not any(os.path.normpath(b) == os.path.normpath(tls_base) for b in bases):
-            bases.append(tls_base)
+            extra_bases.append(tls_base)
 
     out = os.path.join(args.out_dir, args.platform + ".zip")
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -208,6 +212,7 @@ def main():
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
         total, dropped = write_tree(z, prefix, bases, exclude, drop_modules)
+        extra_total, _ = write_tree(z, prefix, extra_bases, exclude, frozenset())
 
     if total == 0:
         # Leaving the empty archive behind would satisfy the "already staged"
@@ -216,11 +221,11 @@ def main():
         sys.exit(f"ERROR: staged nothing from {prefix!r} (bases: {bases})")
 
     size_mb = os.path.getsize(out) / 1_048_576
-    print(f"Staged {total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
+    print(f"Staged {total + extra_total} files from {prefix!r} -> {out!r} ({size_mb:.1f} MB)")
     if dropped:
         print(
             f"Dropped {len(dropped)} unsupported extension modules: "
-            f"{', '.join(sorted(f.split('.')[0] for f in dropped))}"
+            f"{', '.join(sorted({f.split('.')[0] for f in dropped}))}"
         )
 
 

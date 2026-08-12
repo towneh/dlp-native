@@ -159,11 +159,21 @@ namespace YtDlp.Editor
             // megabytes, and only visible by opening the build.
             foreach (var zip in Directory.GetFiles(projStdlibDir, "*.zip"))
             {
+                // GetFiles matches a three-character extension as a prefix, so "*.zip"
+                // also returns ".zipx" and friends — filter to the exact extension.
+                if (!zip.EndsWith(".zip", System.StringComparison.OrdinalIgnoreCase)) continue;
                 if (Path.GetFileName(zip) == platformId + ".zip") continue;
 
                 var mb = new FileInfo(zip).Length / 1_048_576f;
-                File.Delete(zip);
-                if (File.Exists(zip + ".meta")) File.Delete(zip + ".meta");
+                // Through the AssetDatabase where possible, so the asset and its .meta go
+                // together; a file the database has not imported yet falls back to disk.
+                var assetPath = "Assets" + zip.Substring(Application.dataPath.Length)
+                                              .Replace('\\', '/');
+                if (!AssetDatabase.DeleteAsset(assetPath))
+                {
+                    File.Delete(zip);
+                    if (File.Exists(zip + ".meta")) File.Delete(zip + ".meta");
+                }
                 Debug.Log($"[YtDlp] Removed {Path.GetFileName(zip)} ({mb:F1} MB) — " +
                           $"a {platformId} player cannot read it.");
             }

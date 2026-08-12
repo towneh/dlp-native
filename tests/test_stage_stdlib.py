@@ -207,6 +207,49 @@ def test_android_without_a_trust_store_is_an_error(run_stage, prefix, out_dir):
     assert not (out_dir / "android-arm64-v8a.zip").exists()
 
 
+def test_android_trust_store_alone_does_not_satisfy_the_guard(run_stage, prefix, out_dir):
+    # A mistyped --bases stages no stdlib; the certificates must not count in its
+    # place, or the archive ships a trust store and no standard library.
+    write(prefix / "etc" / "tls" / "cert.pem")
+
+    with pytest.raises(SystemExit) as exc:
+        run_stage("android-arm64-v8a", "--prefix", str(prefix), "--bases", "Absent")
+
+    assert "staged nothing" in str(exc.value)
+    assert not (out_dir / "android-arm64-v8a.zip").exists()
+
+
+def test_android_explicit_tls_base_is_not_added_twice(run_stage, prefix):
+    write(prefix / "lib" / "python3.14" / "os.py")
+    write(prefix / "etc" / "tls" / "cert.pem")
+
+    out = run_stage(
+        "android-arm64-v8a", "--prefix", str(prefix), "--bases", "lib/python3.14", "etc/tls"
+    )
+
+    with zipfile.ZipFile(out) as z:
+        assert z.namelist().count("etc/tls/cert.pem") == 1
+
+
+def test_android_drops_excluded_extension_modules(run_stage, prefix, stage_stdlib):
+    module = "_sqlite3"
+    assert module in stage_stdlib.ANDROID_EXCLUDE_MODULES
+    stdlib = prefix / "lib" / "python3.14"
+    write(stdlib / "os.py")
+    # The compiled module goes; its pure-Python wrapper stays.
+    write(stdlib / "lib-dynload" / f"{module}.cpython-314-aarch64-linux-android.so")
+    write(stdlib / "sqlite3" / "__init__.py")
+    write(prefix / "etc" / "tls" / "cert.pem")
+
+    out = run_stage("android-arm64-v8a", "--prefix", str(prefix))
+
+    assert names(out) == {
+        "lib/python3.14/os.py",
+        "lib/python3.14/sqlite3/__init__.py",
+        "etc/tls/cert.pem",
+    }
+
+
 # ── Failure to stage anything ────────────────────────────────────────────────
 
 

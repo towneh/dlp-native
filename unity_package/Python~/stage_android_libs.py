@@ -158,6 +158,8 @@ def set_runpath_origin(path):
 
 def find_lib_dynload(prefix):
     lib = os.path.join(prefix, "lib")
+    if not os.path.isdir(lib):
+        sys.exit(f"ERROR: no lib/ under {prefix!r}")
     # Rank X.Y numerically; sorting the names puts python3.9 above python3.14, which
     # would stage libraries into a different tree from the one stage_stdlib.py zips.
     candidates = [
@@ -182,18 +184,18 @@ def main():
     dynload = find_lib_dynload(prefix)
     libdir = os.path.join(prefix, "lib")
 
-    # Breadth-first over what the modules need, then what those libraries need. Modules
-    # stage_stdlib.py drops are excluded: their libraries would otherwise be copied in
-    # to satisfy something that never ships.
+    # The transitive closure of what the modules need, then what those libraries need.
+    # Modules stage_stdlib.py drops are excluded: their libraries would otherwise be
+    # copied in to satisfy something that never ships.
     have = {
         f
         for f in os.listdir(dynload)
         if f.endswith(".so") and f.split(".")[0] not in ANDROID_EXCLUDE_MODULES
     }
-    queue = [os.path.join(dynload, f) for f in sorted(have)]
+    stack = [os.path.join(dynload, f) for f in sorted(have)]
     copied = []
-    while queue:
-        for need in needed_of(queue.pop()):
+    while stack:
+        for need in needed_of(stack.pop()):
             if need in have or IN_APK.match(need) or PLATFORM.match(need):
                 continue
             src = os.path.join(libdir, need)
@@ -208,7 +210,7 @@ def main():
             shutil.copy(os.path.realpath(src), dest)
             have.add(need)
             copied.append(need)
-            queue.append(dest)
+            stack.append(dest)
 
     patched, stranded = 0, []
     for f in sorted(have):

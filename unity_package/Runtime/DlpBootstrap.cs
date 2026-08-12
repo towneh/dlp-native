@@ -195,26 +195,28 @@ namespace YtDlp
             // The stdlib carries CPython's C extensions in lib/python3.x/lib-dynload/, so
             // extracting to external storage means _struct, _ctypes and friends never load.
             // getFilesDir() is the internal-storage equivalent and is permitted.
+            // No fallback: the only other path on hand is persistentDataPath, where init
+            // would come up degraded and every later extraction would fail on the first
+            // extension import — an opaque error far from the cause. Failing here names it.
             try
             {
                 using var player   = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
                 using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
                 using var files    = activity.Call<AndroidJavaObject>("getFilesDir");
                 var path = files.Call<string>("getAbsolutePath");
-                if (!string.IsNullOrEmpty(path))
-                {
-                    PersistentDataPath = path;
-                    return;
-                }
+                if (string.IsNullOrEmpty(path))
+                    throw new InvalidOperationException("getFilesDir() returned an empty path.");
+                PersistentDataPath = path;
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"[YtDlp] getFilesDir() failed ({e.Message}); falling back to " +
-                                 "persistentDataPath, where the linker will refuse to load " +
-                                 "CPython's extension modules.");
+                throw new InvalidOperationException(
+                    "Android internal storage is unavailable, and CPython's extension " +
+                    "modules cannot load from anywhere else.", e);
             }
-#endif
+#else
             PersistentDataPath = Application.persistentDataPath;
+#endif
         }
 
         private static string GetPlatformId()

@@ -513,8 +513,14 @@ jobs:
             }' /tmp/termux-packages)"
             file="${meta%% *}"
             sha="${meta##* }"
-            if [ -z "$meta" ] || [ "$file" = "$sha" ]; then
+            # Checked apart, so a stanza carrying one field without the other fails
+            # here by name rather than later as a sha256sum parse error.
+            if [ -z "$file" ] || [ "$file" = "$sha" ]; then
               echo "::error::the authenticated index publishes no aarch64 $pkg package"
+              exit 1
+            fi
+            if [ -z "$sha" ]; then
+              echo "::error::the authenticated index publishes no SHA256 for $file"
               exit 1
             fi
             echo "==> $file"
@@ -666,6 +672,12 @@ jobs:
           )"
           work="$(mktemp -d)"
           unzip -q unity_package/StreamingAssets/dlp/stdlib/android-arm64-v8a.zip -d "$work"
+          # The runtime points SSL_CERT_FILE at exactly this path, so its absence is
+          # every TLS connection failing verification on device.
+          [ -s "$work/etc/tls/cert.pem" ] || {
+            echo "::error::the staged stdlib carries no etc/tls/cert.pem, so TLS fails verification on device"
+            exit 1
+          }
           cd "$work"/lib/python3*/lib-dynload || {
             echo "::error::the staged stdlib has no lib-dynload directory"
             exit 1
