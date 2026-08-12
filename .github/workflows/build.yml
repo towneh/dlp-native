@@ -697,7 +697,7 @@ jobs:
             # library that was never going to be looked up here.
             if [ "$siblings" -gt 0 ]; then
               runpath="$(printf '%s' "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')"
-              if [ "$runpath" != '$ORIGIN' ]; then
+              if [ "$runpath" != "\$ORIGIN" ]; then
                 echo "::error::$so has RUNPATH '${runpath:-none}', so the $siblings libraries it needs from this directory will not be found"
                 rc=1
               fi
