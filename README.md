@@ -78,6 +78,8 @@ public class Example : MonoBehaviour
 }
 ```
 
+Init is not instant, and nothing is shown while it runs. The first launch unpacks the Python bundle, and every launch starts the interpreter and pre-imports yt-dlp so the first extraction doesn't pay that cost out of its own timeout. On desktop the whole thing is around a second; on mobile hardware a cold first run can take ten seconds or more, during which a user who has just pasted a URL sees nothing happening. If extraction is reachable from UI, call `EnsureInitAsync` early (app start is fine, it's off the main thread) and surface your own "starting up" state until it completes.
+
 `ExtractAsync` optionally takes an `ExtractOptions` to pick a format (`Format`, `FormatSort`, `GeoBypassCountry`). The result is the sanitised yt-dlp `info_dict`: `VideoInfo` exposes the common fields (`Title`, `Duration`, `Thumbnail`, `Uploader`, `IsLive`, `Chapters`, `Formats`, …), and each `Format` carries `Url`, `Ext`, `Width`, `Height`, codecs and bitrates.
 
 There is a runnable version of this in the **Player Test** sample (Package Manager → Samples → Import). It is an `OnGUI` MonoBehaviour, so it needs no canvas setup, and it is the quickest way to confirm init and extraction work on a device.
