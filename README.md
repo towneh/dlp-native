@@ -44,10 +44,10 @@ To build the binary yourself instead, see [Building](#building).
 
 ### 2. Add the package to your project
 
-`unity_package/` is a UPM package (`com.yewnyx.ytdlp`). Add it through **Window → Package Manager → + → Add package from disk**, pointing at `unity_package/package.json`, or add the path to your project's `Packages/manifest.json`:
+`unity_package/` is a UPM package (`town.mr.ytdlp`). Add it through **Window → Package Manager → + → Add package from disk**, pointing at `unity_package/package.json`, or add the path to your project's `Packages/manifest.json`:
 
 ```json
-"com.yewnyx.ytdlp": "file:C:/path/to/dlp-native/unity_package"
+"town.mr.ytdlp": "file:C:/path/to/dlp-native/unity_package"
 ```
 
 Use an absolute path. Unity resolves relative `file:` entries inconsistently, and a wrong one fails at import with little explanation.
@@ -192,4 +192,5 @@ Metadata / URL resolution only. No download API. The plugin resolves stream URLs
 
 ## License
 
-MIT
+MIT. Originally written by [yewnyx](https://github.com/yewnyx); this repository is the
+maintained continuation. See [LICENSE](LICENSE).

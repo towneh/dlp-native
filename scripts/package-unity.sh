@@ -10,7 +10,7 @@ VERSION=$(cargo metadata --no-deps --format-version 1 \
   | python3 -c "import sys,json; pkgs=json.load(sys.stdin)['packages']; \
     print(next(p['version'] for p in pkgs if p['name']=='unity_dlp_core'))")
 
-TARBALL="com.yewnyx.ytdlp-${VERSION}.tgz"
+TARBALL="town.mr.ytdlp-${VERSION}.tgz"
 
 echo "==> Packaging version $VERSION into $TARBALL..."
 # Python~/ ships the stdlib staging script, so running it in the working tree
