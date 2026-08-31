@@ -38,7 +38,10 @@ REQUIRED: list[tuple[str, list[str], int]] = [
     ("Linux plugin", [f"{PLUGINS}/libunity_dlp.so"], 1),
     ("Linux Python runtime", [f"{PLUGINS}/libpython*.so*"], 1),
     ("Android plugin", ["package/Plugins/Android/libs/arm64-v8a/libunity_dlp.so"], 1),
-    ("iOS framework", ["package/Plugins/iOS/unity_dlp.xcframework/*"], 1),
+    # The static library in both slices, not just anything under the xcframework:
+    # Info.plist alone would otherwise satisfy this, and a device-only framework
+    # would pass while failing to link against the simulator.
+    ("iOS slice libraries", ["package/Plugins/iOS/unity_dlp.xcframework/*/libunity_dlp.a"], 2),
 ]
 
 STDLIB_PLATFORMS = [
