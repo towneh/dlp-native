@@ -1,0 +1,13 @@
+[package]
+name = "unity_dlp_loadcheck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "unity_dlp_loadcheck"
+path = "src/main.rs"
+
+[lints]
+workspace = true

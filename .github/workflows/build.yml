@@ -23,7 +23,7 @@ env:
   IOS_SUPPORT_BUILD: 'b10'
 
 jobs:
-  # â”€â”€ Lint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Lint ────────────────────────────────────────────────────────────────────
   # rust-toolchain.toml has always installed clippy; nothing ran it. The
   # workspace [lints] table denies undocumented unsafe blocks and truncating
   # casts, which only bites if something enforces it.
@@ -89,7 +89,7 @@ jobs:
           echo "VENDOR.md: real=$doc_real declared=$doc_declared"
           echo "manifests: real=$real declared=$declared"
           if [ -z "$doc_real" ] || [ -z "$doc_declared" ]; then
-            echo "::error::Could not read the deno_ast versions from VENDOR.md â€” has the table changed shape?"
+            echo "::error::Could not read the deno_ast versions from VENDOR.md — has the table changed shape?"
             exit 1
           fi
           if [ "$real" != "$doc_real" ] || [ "$declared" != "$doc_declared" ]; then
@@ -102,7 +102,7 @@ jobs:
 
       # Both JS backends are linted and tested: they sit behind mutually
       # exclusive features, so a default run never touches the QuickJS path that
-      # Linux, Android and iOS ship. Do not use --all-features here â€” it would
+      # Linux, Android and iOS ship. Do not use --all-features here — it would
       # enable both backends at once and trip their compile_error!.
       - name: clippy (V8 backend, the default feature)
         run: cargo clippy --all-targets -- -D warnings
@@ -116,7 +116,7 @@ jobs:
       - name: Unit tests (QuickJS backend)
         run: cargo test -p unity_dlp_core --lib --no-default-features --features js-quickjs
 
-  # â”€â”€ Windows x64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
   windows:
     name: Windows x64
     runs-on: windows-latest
@@ -182,7 +182,7 @@ jobs:
             unity_package/Plugins/x86_64/vcruntime140*.dll
             unity_package/StreamingAssets/dlp/
 
-  # â”€â”€ macOS universal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── macOS universal ──────────────────────────────────────────────────────────
   macos:
     name: macOS universal
     runs-on: macos-latest
@@ -248,7 +248,7 @@ jobs:
             unity_package/Plugins/x86_64/Python
             unity_package/StreamingAssets/dlp/
 
-  # â”€â”€ Linux x64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Linux x64 ───────────────────────────────────────────────────────────────
   linux:
     name: Linux x64
     runs-on: ubuntu-latest
@@ -308,7 +308,7 @@ jobs:
             unity_package/Plugins/x86_64/libpython*.so*
             unity_package/StreamingAssets/dlp/
 
-  # â”€â”€ Android arm64-v8a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Android arm64-v8a ────────────────────────────────────────────────────────
   android:
     name: Android arm64-v8a
     runs-on: ubuntu-latest
@@ -358,7 +358,7 @@ jobs:
           restore-keys: android-cargo-
 
       # Termux's pool only carries the current build, so there is no older version
-      # to pin to â€” take the latest and assert the version in the next step. The
+      # to pin to — take the latest and assert the version in the next step. The
       # download is checked against the SHA-256 the repository index publishes for
       # it, since this binary ends up in the shipped artifact and runs inside the
       # application's own process.
@@ -454,7 +454,7 @@ jobs:
           # Every deb lands in this one directory, and ar x names the payload after
           # whatever compression the deb uses (data.tar.xz today, but that is Termux's
           # choice, not ours). Clear the previous package's members and extract the
-          # tarball this ar x actually produced â€” a hard-coded name would quietly
+          # tarball this ar x actually produced — a hard-coded name would quietly
           # re-extract the previous package's payload the day the compression changes.
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract
@@ -612,7 +612,7 @@ jobs:
             cp -L "$src" "$DEST/$soname"
           done
 
-      # A library that is needed but never staged does not fail anything here â€” it
+      # A library that is needed but never staged does not fail anything here — it
       # fails at dlopen on the device, reported against whichever library depends on
       # it. Resolve every NEEDED entry now, against what is staged plus the platform's
       # own libraries, so that gap is a red build instead of a red headset.
@@ -702,7 +702,7 @@ jobs:
                 continue
               fi
               # Anything else has to be a file in this directory, which only resolves
-              # if the loader is told to look here â€” see the RUNPATH check below.
+              # if the loader is told to look here — see the RUNPATH check below.
               siblings=$((siblings + 1))
               if [ ! -f "$need" ]; then
                 echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
@@ -730,7 +730,7 @@ jobs:
             unity_package/Plugins/Android/libs/arm64-v8a/
             unity_package/StreamingAssets/dlp/
 
-  # â”€â”€ iOS arm64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── iOS arm64 ────────────────────────────────────────────────────────────────
   ios:
     name: iOS arm64
     runs-on: macos-latest
@@ -757,7 +757,7 @@ jobs:
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
-      - name: Install Python ${{ env.PYTHON_VERSION }} (host â€” stdlib source for iOS)
+      - name: Install Python ${{ env.PYTHON_VERSION }} (host — stdlib source for iOS)
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -835,7 +835,7 @@ jobs:
         run: |
           # python-apple-support only ships the compiled static lib + headers;
           # the stdlib comes from the macOS host Python installed above.
-          # Exclude lib-dynload (macOS .so binaries â€” not usable on iOS; C
+          # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
           # extensions are compiled into libpythonX.Y.a by python-apple-support).
           python3 "unity_package/Python~/stage_stdlib.py" ios-arm64 \
             --exclude-dirs lib-dynload
@@ -856,3 +856,110 @@ jobs:
           path: |
             unity_package/Plugins/iOS/unity_dlp.xcframework/
             unity_package/StreamingAssets/dlp/
+
+  # ── Verify the uploaded artifacts ───────────────────────────────────────────
+  # Everything above proves the workspace builds. None of it loads what is
+  # actually uploaded: the CLI smoke test links unity_dlp_core statically and
+  # finds Python through the runner, so it passes even when the artifact is
+  # missing the runtime it needs to be loadable at all. This unpacks each
+  # artifact into a clean tree and loads the plugin out of it by path, which is
+  # what a consumer's build does.
+  verify:
+    name: Verify ${{ matrix.artifact }}
+    needs: [windows, macos, linux]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      # One platform's packaging fault says nothing about the others, and seeing
+      # all three at once beats stopping at the first.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: unity_dlp-windows-x64
+            stdlib: windows-x86_64
+          - os: macos-latest
+            artifact: unity_dlp-macos-universal
+            stdlib: macos-universal
+          - os: ubuntu-latest
+            artifact: unity_dlp-linux-x64
+            stdlib: linux-x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download ${{ matrix.artifact }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifact
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      # The checker deliberately does not link unity_dlp_core, so this builds in
+      # seconds and cannot accidentally satisfy the plugin's own dependencies.
+      - name: Build the load checker
+        run: cargo build -p unity_dlp_loadcheck --release
+
+      - name: Unpack the staged stdlib
+        shell: bash
+        run: |
+          # The package extracts this zip and hands the result to init as
+          # PYTHONHOME, so the check has to arrive at the same layout.
+          PYTHON="$(uv python find --system '${{ env.PYTHON_REQUEST }}')"
+          "$PYTHON" -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+            "artifact/StreamingAssets/dlp/stdlib/${{ matrix.stdlib }}.zip" python-home
+
+      - name: Load and initialise the staged plugin
+        shell: bash
+        run: |
+          # GitHub runs bash with -e, so this cannot be a && chain: the test
+          # failing off Windows would end the step.
+          BIN=target/release/unity_dlp_loadcheck
+          if [ -f "$BIN.exe" ]; then BIN="$BIN.exe"; fi
+          "$BIN" --package-root artifact --python-home python-home
+
+  # ── Unity package tarball ───────────────────────────────────────────────────
+  # Assembles every platform into the tarball a consumer installs, and asserts
+  # each one actually landed. A platform whose upload path stops matching drops
+  # out of the package silently otherwise, and the only symptom is a plugin that
+  # will not load on that platform.
+  package:
+    name: Unity package
+    needs: [windows, macos, linux, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Every artifact is rooted at unity_package/, so merging them recreates the
+      # tree the package script expects.
+      - name: Download every platform artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: unity_dlp-*
+          merge-multiple: true
+          path: unity_package
+
+      - name: Assemble the tarball
+        run: bash scripts/package-unity.sh
+
+      - name: Check the tarball carries every platform
+        run: python3 scripts/check-package.py
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unity-package-tarball
+          path: '*.tgz'
+          if-no-files-found: error

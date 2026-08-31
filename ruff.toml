@@ -1,6 +1,7 @@
-# Ruff covers the two Python files in this repo: the yt-dlp JS-challenge shim
-# under python/ and the stdlib staging script under scripts/. Everything under
-# vendor/ is upstream (yt-dlp, yt-dlp-ejs) and is not ours to lint.
+# Ruff covers this repo's own Python: the yt-dlp JS-challenge shim under python/,
+# the staging scripts inside the Unity package, and the build scripts under
+# scripts/. Everything under vendor/ is upstream (yt-dlp, yt-dlp-ejs) and is not
+# ours to lint.
 
 target-version = "py312"
 line-length = 100
@@ -26,6 +27,10 @@ ignore = [
 # interpreter rather than declaring the file runnable; EXE001 only fires where the
 # mode bit is visible, which a Windows checkout cannot reproduce.
 "unity_package/Python~/*.py" = ["ANN", "EXE001", "PTH", "S603", "T201"]
+
+# Same conventions for the build scripts: stdout is how they report, they are not
+# a package, and they are stored non-executable and run through an interpreter.
+"scripts/*.py" = ["EXE001", "INP001", "T201"]
 
 # Both complexity rules trip on the same function, stage_stdlib's main(), which is
 # a flat run of argument handling and path resolution rather than anything branchy

@@ -3,6 +3,7 @@ members = [
     "crates/unity_dlp_core",
     "crates/unity_dlp_cli",
     "crates/unity_dlp_capi",
+    "crates/unity_dlp_loadcheck",
 ]
 resolver = "2"
 

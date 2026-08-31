@@ -1,0 +1,53 @@
+name: Release
+
+# Attaches the Unity package tarball to a published release.
+#
+# Nothing is rebuilt here. The tarball is taken from the Build run that already
+# ran for the release's commit, so what reaches the release is the artifact that
+# passed verification rather than a fresh, unverified one. Keeping this separate
+# from build.yml also keeps a publishing trigger away from that workflow's
+# caches, which would otherwise be a cache-poisoning route into a release.
+on:
+  release:
+    types: [published]
+  # Re-attach by hand if the release was published before the build finished.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to attach the package to
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  attach:
+    name: Attach the Unity package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Attach the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          # Dereferences an annotated tag to the commit it points at, which is
+          # what a workflow run records as its head SHA.
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')"
+          echo "$TAG is $commit"
+
+          run_id="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?head_sha=$commit&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')"
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful Build run for $TAG ($commit); re-run the build, then dispatch this workflow"
+            exit 1
+          fi
+          echo "Taking the package from run $run_id"
+
+          gh run download "$run_id" --name unity-package-tarball --dir .
+          gh release upload "$TAG" ./*.tgz --clobber --repo "$GITHUB_REPOSITORY"
