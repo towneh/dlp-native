@@ -29,17 +29,44 @@ namespace YtDlp.Editor
             AssetDatabase.Refresh();
         }
 
+        // All three desktop binaries live in one directory, so each has to name the
+        // targets it is *not* for as well. Clearing Any Platform leaves the individual
+        // standalone flags alone, and their default is enabled, so a Windows DLL stays
+        // marked for the Linux and macOS players unless each is disabled by hand.
+        private static readonly BuildTarget[] DesktopTargets =
+        {
+            BuildTarget.StandaloneWindows64,
+            BuildTarget.StandaloneOSX,
+            BuildTarget.StandaloneLinux64,
+        };
+
+        private static void ConfigureDesktop(
+            PluginImporter imp, BuildTarget target, string cpu, bool editor)
+        {
+            imp.SetCompatibleWithAnyPlatform(false);
+            imp.SetCompatibleWithEditor(editor);
+            foreach (var other in DesktopTargets)
+                imp.SetCompatibleWithPlatform(other, other == target);
+            imp.SetPlatformData(target, "CPU", cpu);
+            imp.SaveAndReimport();
+        }
+
+        // Every .dll in the directory, because the plugin is not the only one that has
+        // to reach the player: unity_dlp.dll imports python3.dll, which forwards to the
+        // full runtime staged beside it. An unconfigured plugin defaults to Any Platform,
+        // which offers a Windows DLL to every other target as well.
         private static void ConfigureWindowsX64()
         {
-            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/unity_dlp.dll";
-            if (!File.Exists(Path.GetFullPath(path))) return;
-            var imp = AssetImporter.GetAtPath(path) as PluginImporter;
-            if (imp == null) return;
-            imp.SetCompatibleWithAnyPlatform(false);
-            imp.SetCompatibleWithEditor(true);
-            imp.SetCompatibleWithPlatform(BuildTarget.StandaloneWindows64, true);
-            imp.SetPlatformData(BuildTarget.StandaloneWindows64, "CPU", "x86_64");
-            imp.SaveAndReimport();
+            const string dir = "Packages/town.mr.ytdlp/Plugins/x86_64";
+            var fullDir = Path.GetFullPath(dir);
+            if (!Directory.Exists(fullDir)) return;
+
+            foreach (var file in Directory.GetFiles(fullDir, "*.dll"))
+            {
+                var imp = AssetImporter.GetAtPath($"{dir}/{Path.GetFileName(file)}") as PluginImporter;
+                if (imp == null) continue;
+                ConfigureDesktop(imp, BuildTarget.StandaloneWindows64, "x86_64", editor: true);
+            }
         }
 
         private static void ConfigureMacOsUniversal()
@@ -48,24 +75,16 @@ namespace YtDlp.Editor
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
-            imp.SetCompatibleWithAnyPlatform(false);
-            imp.SetCompatibleWithEditor(true);
-            imp.SetCompatibleWithPlatform(BuildTarget.StandaloneOSX, true);
-            imp.SetPlatformData(BuildTarget.StandaloneOSX, "CPU", "AnyCPU");
-            imp.SaveAndReimport();
+            ConfigureDesktop(imp, BuildTarget.StandaloneOSX, "AnyCPU", editor: true);
         }
 
         private static void ConfigureLinuxX64()
         {
-            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/unity_dlp.so";
+            var path = "Packages/town.mr.ytdlp/Plugins/x86_64/libunity_dlp.so";
             if (!File.Exists(Path.GetFullPath(path))) return;
             var imp = AssetImporter.GetAtPath(path) as PluginImporter;
             if (imp == null) return;
-            imp.SetCompatibleWithAnyPlatform(false);
-            imp.SetCompatibleWithEditor(false);
-            imp.SetCompatibleWithPlatform(BuildTarget.StandaloneLinux64, true);
-            imp.SetPlatformData(BuildTarget.StandaloneLinux64, "CPU", "x86_64");
-            imp.SaveAndReimport();
+            ConfigureDesktop(imp, BuildTarget.StandaloneLinux64, "x86_64", editor: false);
         }
 
         private static void ConfigureIos()
