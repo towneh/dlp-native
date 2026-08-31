@@ -23,7 +23,7 @@ env:
   IOS_SUPPORT_BUILD: 'b10'
 
 jobs:
-  # ── Lint ────────────────────────────────────────────────────────────────────
+  # â”€â”€ Lint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   # rust-toolchain.toml has always installed clippy; nothing ran it. The
   # workspace [lints] table denies undocumented unsafe blocks and truncating
   # casts, which only bites if something enforces it.
@@ -89,7 +89,7 @@ jobs:
           echo "VENDOR.md: real=$doc_real declared=$doc_declared"
           echo "manifests: real=$real declared=$declared"
           if [ -z "$doc_real" ] || [ -z "$doc_declared" ]; then
-            echo "::error::Could not read the deno_ast versions from VENDOR.md — has the table changed shape?"
+            echo "::error::Could not read the deno_ast versions from VENDOR.md â€” has the table changed shape?"
             exit 1
           fi
           if [ "$real" != "$doc_real" ] || [ "$declared" != "$doc_declared" ]; then
@@ -102,7 +102,7 @@ jobs:
 
       # Both JS backends are linted and tested: they sit behind mutually
       # exclusive features, so a default run never touches the QuickJS path that
-      # Linux, Android and iOS ship. Do not use --all-features here — it would
+      # Linux, Android and iOS ship. Do not use --all-features here â€” it would
       # enable both backends at once and trip their compile_error!.
       - name: clippy (V8 backend, the default feature)
         run: cargo clippy --all-targets -- -D warnings
@@ -116,7 +116,7 @@ jobs:
       - name: Unit tests (QuickJS backend)
         run: cargo test -p unity_dlp_core --lib --no-default-features --features js-quickjs
 
-  # ── Windows x64 ─────────────────────────────────────────────────────────────
+  # â”€â”€ Windows x64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   windows:
     name: Windows x64
     runs-on: windows-latest
@@ -173,11 +173,16 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: unity_dlp-windows-x64
+          # unity_dlp.dll imports python3.dll, so the runtime has to travel with
+          # it: an artifact carrying the plugin alone cannot be loaded. The globs
+          # track PYTHON_VERSION without naming it.
           path: |
             unity_package/Plugins/x86_64/unity_dlp.dll
+            unity_package/Plugins/x86_64/python3*.dll
+            unity_package/Plugins/x86_64/vcruntime140*.dll
             unity_package/StreamingAssets/dlp/
 
-  # ── macOS universal ──────────────────────────────────────────────────────────
+  # â”€â”€ macOS universal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   macos:
     name: macOS universal
     runs-on: macos-latest
@@ -243,7 +248,7 @@ jobs:
             unity_package/Plugins/x86_64/Python
             unity_package/StreamingAssets/dlp/
 
-  # ── Linux x64 ───────────────────────────────────────────────────────────────
+  # â”€â”€ Linux x64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   linux:
     name: Linux x64
     runs-on: ubuntu-latest
@@ -303,7 +308,7 @@ jobs:
             unity_package/Plugins/x86_64/libpython*.so*
             unity_package/StreamingAssets/dlp/
 
-  # ── Android arm64-v8a ────────────────────────────────────────────────────────
+  # â”€â”€ Android arm64-v8a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   android:
     name: Android arm64-v8a
     runs-on: ubuntu-latest
@@ -353,7 +358,7 @@ jobs:
           restore-keys: android-cargo-
 
       # Termux's pool only carries the current build, so there is no older version
-      # to pin to — take the latest and assert the version in the next step. The
+      # to pin to â€” take the latest and assert the version in the next step. The
       # download is checked against the SHA-256 the repository index publishes for
       # it, since this binary ends up in the shipped artifact and runs inside the
       # application's own process.
@@ -449,7 +454,7 @@ jobs:
           # Every deb lands in this one directory, and ar x names the payload after
           # whatever compression the deb uses (data.tar.xz today, but that is Termux's
           # choice, not ours). Clear the previous package's members and extract the
-          # tarball this ar x actually produced — a hard-coded name would quietly
+          # tarball this ar x actually produced â€” a hard-coded name would quietly
           # re-extract the previous package's payload the day the compression changes.
           mkdir -p /tmp/termux-extract
           cd /tmp/termux-extract
@@ -607,7 +612,7 @@ jobs:
             cp -L "$src" "$DEST/$soname"
           done
 
-      # A library that is needed but never staged does not fail anything here — it
+      # A library that is needed but never staged does not fail anything here â€” it
       # fails at dlopen on the device, reported against whichever library depends on
       # it. Resolve every NEEDED entry now, against what is staged plus the platform's
       # own libraries, so that gap is a red build instead of a red headset.
@@ -697,7 +702,7 @@ jobs:
                 continue
               fi
               # Anything else has to be a file in this directory, which only resolves
-              # if the loader is told to look here — see the RUNPATH check below.
+              # if the loader is told to look here â€” see the RUNPATH check below.
               siblings=$((siblings + 1))
               if [ ! -f "$need" ]; then
                 echo "::error::$so needs $need, which is neither staged beside it, nor in the APK, nor an Android platform library"
@@ -725,7 +730,7 @@ jobs:
             unity_package/Plugins/Android/libs/arm64-v8a/
             unity_package/StreamingAssets/dlp/
 
-  # ── iOS arm64 ────────────────────────────────────────────────────────────────
+  # â”€â”€ iOS arm64 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   ios:
     name: iOS arm64
     runs-on: macos-latest
@@ -752,7 +757,7 @@ jobs:
       - name: Install Rust targets
         run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
-      - name: Install Python ${{ env.PYTHON_VERSION }} (host — stdlib source for iOS)
+      - name: Install Python ${{ env.PYTHON_VERSION }} (host â€” stdlib source for iOS)
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -830,7 +835,7 @@ jobs:
         run: |
           # python-apple-support only ships the compiled static lib + headers;
           # the stdlib comes from the macOS host Python installed above.
-          # Exclude lib-dynload (macOS .so binaries — not usable on iOS; C
+          # Exclude lib-dynload (macOS .so binaries â€” not usable on iOS; C
           # extensions are compiled into libpythonX.Y.a by python-apple-support).
           python3 "unity_package/Python~/stage_stdlib.py" ios-arm64 \
             --exclude-dirs lib-dynload

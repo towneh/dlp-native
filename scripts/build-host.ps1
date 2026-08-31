@@ -67,13 +67,29 @@ Copy-Item $DllSrc $Dest -Force
 Write-Host "==> Copied unity_dlp.dll → $Dest"
 
 # Copy the Python runtime DLLs that unity_dlp.dll links against.
-# python3.dll is the stable-ABI forwarder; pythonXY.dll is the full runtime.
+# python3.dll is the stable-ABI forwarder it imports; pythonXY.dll is the full
+# runtime behind it. Neither is optional, so a missing one fails the build here
+# rather than producing a package that only reveals itself as broken once Unity
+# opens it.
 $PyDll = "python$($PyVersion -replace '\.', '').dll"
-foreach ($dll in @('python3.dll', $PyDll, 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+foreach ($dll in @('python3.dll', $PyDll)) {
+    $src = Join-Path $PyPrefix $dll
+    if (-not (Test-Path $src)) {
+        Write-Error "$dll not found in $PyPrefix — cannot stage a loadable plugin"
+    }
+    Copy-Item $src $Dest -Force
+    Write-Host "==> Copied $dll → $Dest"
+}
+
+# The C runtime only has to ship where the target lacks the redistributable, so
+# treat it as best-effort.
+foreach ($dll in @('vcruntime140.dll', 'vcruntime140_1.dll')) {
     $src = Join-Path $PyPrefix $dll
     if (Test-Path $src) {
         Copy-Item $src $Dest -Force
         Write-Host "==> Copied $dll → $Dest"
+    } else {
+        Write-Warning "$dll not found in $PyPrefix — skipping"
     }
 }
 
