@@ -6,9 +6,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-VERSION=$(cargo metadata --no-deps --format-version 1 \
-  | python3 -c "import sys,json; pkgs=json.load(sys.stdin)['packages']; \
-    print(next(p['version'] for p in pkgs if p['name']=='unity_dlp_core'))")
+# The Unity package's own version, not the Rust crate's: this tarball is what UPM
+# installs, and it resolves to whatever package.json declares. Naming it after the
+# workspace version instead produces a file whose name contradicts its contents.
+VERSION=$(python3 -c \
+  "import json; print(json.load(open('unity_package/package.json'))['version'])")
 
 TARBALL="town.mr.ytdlp-${VERSION}.tgz"
 

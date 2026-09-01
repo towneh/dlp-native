@@ -27,6 +27,8 @@ namespace YtDlp
         // re-extraction on the next launch. A bump also invalidates any staged
         // update pointer (its forDlpVersion no longer matches), so a field install
         // broken by an older staging scheme recovers on the first launch after update.
+        // Deliberately independent of package.json, which also moves for packaging-only
+        // releases that change nothing this key protects.
         private const string DlpVersion = "0.3.0";
 
         /// <summary>
