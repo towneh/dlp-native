@@ -58,13 +58,20 @@ jobs:
           # The per-platform zips go up too: run artifacts expire, so the release
           # is the only lasting source for them. gh unpacks an artifact on the way
           # down, so each is re-zipped, which is all GitHub's own archive is.
+          #
+          # Not with info-zip: it stores rather than compresses anything suffixed
+          # .zip, and the staged stdlib is a deliberately uncompressed archive of
+          # plain .py text, so that heuristic nearly doubles every asset. Python
+          # deflates whatever it is given.
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=50" \
             --jq '.artifacts[] | select(.name | startswith("unity_dlp-")) | .name' \
             | while read -r name; do
                 echo "Downloading $name"
                 gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
                   --name "$name" --dir "$name"
-                (cd "$name" && zip -qr "../$name.zip" .)
+                python3 -c \
+                  "import shutil, sys; shutil.make_archive(sys.argv[1], 'zip', sys.argv[1])" \
+                  "$name"
               done
 
           # Unglobbed, so a missing artifact is reported by the upload below rather
