@@ -50,4 +50,19 @@ jobs:
           echo "Taking the package from run $run_id"
 
           gh run download "$run_id" --name unity-package-tarball --dir .
-          gh release upload "$TAG" ./*.tgz --clobber --repo "$GITHUB_REPOSITORY"
+
+          # The per-platform zips go up too. Run artifacts expire, so the release
+          # is the only lasting source for them, and fetch-artifacts.ps1 expects
+          # that shape. `gh api .../zip` serves the archive GitHub already holds,
+          # which `gh run download` would unpack and lose.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=50" \
+            --jq '.artifacts[] | select(.name | startswith("unity_dlp-")) | "\(.id) \(.name)"' \
+            | while read -r id name; do
+                echo "Downloading $name"
+                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$name.zip"
+              done
+
+          # Unglobbed, so a missing artifact is reported by the upload below rather
+          # than by an unmatched wildcard here.
+          ls -la
+          gh release upload "$TAG" ./*.tgz ./*.zip --clobber --repo "$GITHUB_REPOSITORY"
