@@ -339,13 +339,12 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Locate Android NDK and configure bindgen sysroot
+      - name: Locate Android NDK
         run: |
           NDK_DIR="$(find "$ANDROID_SDK_ROOT/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          NDK_SYSROOT="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           {
             echo "ANDROID_NDK_HOME=$NDK_DIR"
-            echo "BINDGEN_EXTRA_CLANG_ARGS=--sysroot=$NDK_SYSROOT --target=aarch64-linux-android26"
+            echo "NDK_SYSROOT=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           } >> "$GITHUB_ENV"
 
       - name: Cache Cargo registry
@@ -569,8 +568,14 @@ jobs:
             echo "TERMUX_PREFIX=$PREFIX"
           } >> "$GITHUB_ENV"
 
+      # rquickjs-sys hands bindgen the bare rustc triple, which NDK 30's headers reject
+      # without an API level. cargo-ndk sets BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android
+      # with no --target, and bindgen reads that before the unsuffixed variable, so the
+      # versioned target goes in under the hyphenated name, which bindgen checks first.
+      # It needs `env` because the shell can't export a name containing hyphens.
       - name: Build Android arm64-v8a
         run: |
+          env "BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android=--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/aarch64-linux-android --target=aarch64-linux-android26" \
           cargo ndk \
             --target aarch64-linux-android \
             --platform 26 \
