@@ -29,7 +29,7 @@ namespace YtDlp
         // broken by an older staging scheme recovers on the first launch after update.
         // Deliberately independent of package.json, which also moves for packaging-only
         // releases that change nothing this key protects.
-        private const string DlpVersion = "0.3.0";
+        private const string DlpVersion = "0.3.2";
 
         /// <summary>
         /// When true, after init the engine checks PyPI for a newer yt-dlp and stages it for
